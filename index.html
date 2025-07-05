@@ -2360,339 +2360,108 @@ async function handleClearHistory() { // Made async
                     function getRecommendation(trendStats, boardStats, neighbourScores, diff, isForWeightUpdate = false, mlProbabilities = null, currentAdaptiveInfluences = adaptiveFactorInfluences) {
                         const currentNum1 = parseInt(dom.number1.value, 10);
                         const currentNum2 = parseInt(dom.number2.value, 10);
-                        const lastWinningNumber = confirmedWinsLog.length > 0 ? confirmedWinsLog[confirmedWinsLog.length -1] : null;
-                        const RECENT_HISTORY_SIZE = 10;
-                        let patternInfo = null;
-                        let activePatternBoost = null;
+                        const lastWinningNumber = confirmedWinsLog.length > 0 ? confirmedWinsLog[confirmedWinsLog.length - 1] : null;
 
-                        const successfulSpins = history.filter(item => item.status === 'success' && item.hitTypes.length > 0).sort((a,b) => a.id - b.id);
-                        
-                        if (successfulSpins.length >= 2) {
-                            const [prevSpin, lastSpin] = successfulSpins.slice(-2);
-                            if (prevSpin.hitTypes.length === 1 && lastSpin.hitTypes.length === 1 && prevSpin.winningNumber !== null) {
-                                const typeA = prevSpin.hitTypes[0];
-                                const typeB = lastSpin.hitTypes[0];
-                                
-                                if (typeA !== typeB) {
-                                    const patternKey = `oscillation-${typeA}-${typeB}`;
-                                    const patternData = patternMemory[patternKey];
-                                    if (patternData && patternData.attempts >= STRATEGY_CONFIG.patternMinAttempts) {
-                                        const successRate = (patternData.successes / patternData.attempts) * 100;
-                                        if (successRate >= STRATEGY_CONFIG.patternSuccessThreshold) {
-                                            const predictionTarget = typeA;
-                                            activePatternBoost = {
-                                                targetType: predictionTarget,
-                                                scoreMultiplier: 1.5 + (successRate - STRATEGY_CONFIG.patternSuccessThreshold) / 20,
-                                                info: `<strong>Pattern Alert:</strong> "${allPredictionTypes.find(t=>t.id===typeA).label} → ${allPredictionTypes.find(t=>t.id===typeB).label}" oscillation detected. Predicting a <strong>${allPredictionTypes.find(t=>t.id===predictionTarget).label}</strong> win. (${successRate.toFixed(0)}% success)`
-                                            };
-                                            patternInfo = activePatternBoost.info;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        if (!activePatternBoost && successfulSpins.length >= 1) {
-                            const lastSuccess = successfulSpins[successfulSpins.length - 1];
-                            if (lastSuccess.hitTypes.length === 1) {
-                                const lastWinType = lastSuccess.hitTypes[0];
-                                const lastWinNumber = lastSuccess.winningNumber;
-
-                                const typeTriggerKey = `trigger-type-${lastWinType}`;
-                                const numberTriggerKey = `trigger-num-${lastWinNumber}`;
-                                
-                                const typeTriggerData = patternMemory[typeTriggerKey];
-                                const numberTriggerData = patternMemory[numberTriggerKey];
-                                
-                                let bestTrigger = null;
-
-                                if (typeTriggerData) {
-                                    for (const resultType in typeTriggerData) {
-                                        const data = typeTriggerData[resultType];
-                                        if (data.attempts >= STRATEGY_CONFIG.triggerMinAttempts) {
-                                            const successRate = (data.successes / data.attempts) * 100;
-                                            if (!bestTrigger || successRate > bestTrigger.successRate) {
-                                                bestTrigger = {
-                                                    targetType: resultType,
-                                                    successRate: successRate,
-                                                    info: `<strong>Trigger Alert:</strong> Last win (<strong>${allPredictionTypes.find(t=>t.id===lastWinType).label}</strong>) often leads to a <strong>${allPredictionTypes.find(t=>t.id===resultType).label}</strong> win. (${successRate.toFixed(0)}% success)`
-                                                };
-                                            }
-                                        }
-                                    }
-                                }
-                                if (numberTriggerData) {
-                                        for (const resultType in numberTriggerData) {
-                                            const data = numberTriggerData[resultType];
-                                            if (data.attempts >= STRATEGY_CONFIG.triggerMinAttempts) {
-                                                const successRate = (data.successes / data.attempts) * 100;
-                                                if (!bestTrigger || successRate > bestTrigger.successRate) {
-                                                    bestTrigger = {
-                                                        targetType: resultType,
-                                                        successRate: successRate,
-                                                        info: `<strong>Trigger Alert:</strong> Last number (<strong>${lastWinNumber}</strong>) often leads to a <strong>${allPredictionTypes.find(t=>t.id===resultType).label}</strong> win. (${successRate.toFixed(0)}% success)`
-                                                    };
-                                                }
-                                            }
-                                        }
-                                }
-
-                                if (bestTrigger) {
-                                    activePatternBoost = {
-                                        targetType: bestTrigger.targetType,
-                                        scoreMultiplier: 1.4 + (bestTrigger.successRate - STRATEGY_CONFIG.triggerSuccessThreshold) / 25,
-                                        info: bestTrigger.info
-                                    };
-                                    patternInfo = activePatternBoost.info;
-                                }
-                            }
-                        }
-                        
-                        // --- PHASE 1: SIGNAL CONFLUENCE - STEP 1: Find Expert Picks ---
-                        let bestHistorianPickId = null;
-                        let maxBaseScore = -1;
-
-                        let bestPhysicistPickId = null;
-                        let minDistance = Infinity;
-                        
-                        let bestAiPickId = null;
-                        let maxMlProb = -1;
-
-                        activePredictionTypes.forEach(type => {
-                            const predictionTypeDefinition = allPredictionTypes.find(t => t.id === type.id);
-                            if (!predictionTypeDefinition) return;
-                            
-                            // Historian Check
-                            const baseScore = (boardStats[type.id]?.total > 0 ? (boardStats[type.id]?.success / boardStats[type.id]?.total * 100) : 0) * (parseFloat(trendStats.averages[type.id]) || 0);
-                            if (baseScore > maxBaseScore) {
-                                maxBaseScore = baseScore;
-                                bestHistorianPickId = type.id;
-                            }
-
-                            // Physicist Check
-                            if (lastWinningNumber !== null) {
-                                const baseNum = predictionTypeDefinition.calculateBase(currentNum1, currentNum2);
-                                if (baseNum >= 0 && baseNum <= 36) {
-                                    const terminals = terminalMapping?.[baseNum] || [];
-                                    const hitZone = getHitZone(baseNum, terminals, lastWinningNumber);
-                                    let candidateMinDist = Infinity;
-                                    for (const zoneNum of hitZone) {
-                                        const dist = calculatePocketDistance(zoneNum, lastWinningNumber);
-                                        if (dist < candidateMinDist) {
-                                            candidateMinDist = dist;
-                                        }
-                                    }
-                                    if (candidateMinDist < minDistance) {
-                                        minDistance = candidateMinDist;
-                                        bestPhysicistPickId = type.id;
-                                    }
-                                }
-                            }
-                        });
-
-                        // AI Guru Check
-                        if (mlProbabilities) {
-                            for (const typeId in mlProbabilities) {
-                                if (mlProbabilities[typeId] > maxMlProb) {
-                                    maxMlProb = mlProbabilities[typeId];
-                                    bestAiPickId = typeId;
-                                }
-                            }
-                        }
-                        // --- END OF PHASE 1 - STEP 1 ---
-
+                        // --- NEW: Additive Points-Based Scoring System ---
                         let candidates = activePredictionTypes.map(type => {
-                            const baseScore = (boardStats[type.id]?.total > 0 ? (boardStats[type.id]?.success / boardStats[type.id]?.total * 100) : 0) * (parseFloat(trendStats.averages[type.id]) || 0);
-                            let score = baseScore;
-
+                            let score = 0;
                             const details = {
-                                baseScore: baseScore,
                                 hitRate: (boardStats[type.id]?.total > 0 ? (boardStats[type.id]?.success / boardStats[type.id]?.total * 100) : 0),
                                 avgTrend: parseFloat(trendStats.averages[type.id]) || 0,
+                                currentStreak: trendStats.currentStreaks[type.id] || 0,
                                 predictiveDistance: Infinity,
-                                proximityBoostApplied: false,
-                                weightedZoneBoostApplied: false,
-                                patternBoostApplied: false,
-                                patternBoostMultiplier: 1,
+                                neighbourScore: 0,
                                 mlProbability: mlProbabilities ? mlProbabilities[type.id] : null,
-                                mlBoostApplied: false,
-                                aiLowPocketBoostApplied: false,
                                 finalScore: 0,
-                                primaryDrivingFactor: 'N/A',
-                                adaptiveInfluenceUsed: 1.0,
-                                confluenceBonus: 1.0 // Add this to details for tracking
+                                reason: []
                             };
 
-                            const predictionTypeDefinition = allPredictionTypes.find(t => t.id === type.id);
-                            if (!predictionTypeDefinition) return;
-                            const baseNum = predictionTypeDefinition.calculateBase(currentNum1, currentNum2);
+                            // 1. Base Score from Hit Rate (up to 20 points)
+                            // Awards points for being above a 40% baseline rate
+                            const hitRatePoints = Math.max(0, details.hitRate - 40) * 0.5;
+                            score += hitRatePoints;
+                            if (hitRatePoints > 0) details.reason.push(`Hit Rate (${details.hitRate.toFixed(1)}%)`);
 
+                            // 2. Momentum Score from Current Streak (up to 15 points)
+                            const streakPoints = Math.min(15, details.currentStreak * 5);
+                            score += streakPoints;
+                            if (streakPoints > 0) details.reason.push(`Streak (${details.currentStreak})`);
+                            
+                            const predictionTypeDefinition = allPredictionTypes.find(t => t.id === type.id);
+                            if (!predictionTypeDefinition) return null;
+                            const baseNum = predictionTypeDefinition.calculateBase(currentNum1, currentNum2);
                             const terminals = terminalMapping?.[baseNum] || [];
                             const hitZone = getHitZone(baseNum, terminals, lastWinningNumber);
 
-                            if (useWeightedZone) {
-                                const zoneScore = hitZone.reduce((sum, num) => sum + (neighbourScores[num]?.success || 0), 0);
-                                const influence = currentAdaptiveInfluences['Hot Zone Weighting'] || 1.0;
-                                score *= (1 + zoneScore / 10) * (strategyStates.weightedZone.weight) * influence;
-                                details.weightedZoneBoostApplied = true;
-                            }
-
-                            let predictiveDistance = Infinity;
-                            if (lastWinningNumber !== null) {
-                                for(const zoneNum of hitZone){
+                            // 3. Proximity Score (up to 10 points) - IF TOGGLED
+                            if (useProximityBoost && lastWinningNumber !== null) {
+                                for (const zoneNum of hitZone) {
                                     const dist = calculatePocketDistance(zoneNum, lastWinningNumber);
-                                    if(dist < predictiveDistance){
-                                        predictiveDistance = dist;
-                                    }
+                                    if (dist < details.predictiveDistance) details.predictiveDistance = dist;
                                 }
-                                details.predictiveDistance = predictiveDistance;
-                                if(useProximityBoost && predictiveDistance <= 5){
-                                    const influence = currentAdaptiveInfluences['Proximity to Last Spin'] || 1.0;
-                                    score *= (1 + (1 / (1 + predictiveDistance))) * (strategyStates.proximityBoost.weight) * influence;
-                                    details.proximityBoostApplied = true;
+                                if (details.predictiveDistance <= 5) {
+                                    const proximityPoints = (5 - details.predictiveDistance) * 2;
+                                    score += proximityPoints;
+                                    details.reason.push(`Proximity (${details.predictiveDistance})`);
                                 }
                             }
 
-                            if (useLowestPocketDistance && predictiveDistance <= 1 && mlProbabilities && mlProbabilities[type.id] !== undefined) {
-                                const AI_LOW_POCKET_BOOST_FACTOR_BASE = 4;
-                                const influence = currentAdaptiveInfluences['AI-Driven Proximity'] || 1.0;
-                                score *= (1 + mlProbabilities[type.id] * AI_LOW_POCKET_BOOST_FACTOR_BASE) * influence;
-                                details.aiLowPocketBoostApplied = true;
+                            // 4. Neighbour Score (up to 10 points) - IF TOGGLED
+                            if (useWeightedZone) {
+                                details.neighbourScore = hitZone.reduce((sum, num) => sum + (neighbourScores[num]?.success || 0), 0);
+                                const neighbourPoints = Math.min(10, details.neighbourScore * 0.5);
+                                score += neighbourPoints;
+                                if (neighbourPoints > 0) details.reason.push(`Neighbours`);
                             }
 
-                            if (activePatternBoost && type.id === activePatternBoost.targetType) {
-                                const influence = currentAdaptiveInfluences['Pattern Detection'] || 1.0;
-                                score *= activePatternBoost.scoreMultiplier * influence;
-                                details.patternBoostApplied = true;
-                                details.patternBoostMultiplier = activePatternBoost.scoreMultiplier;
-                            }
-
-                            if (mlProbabilities && mlProbabilities[type.id] !== undefined) {
-                                const AI_PROBABILITY_BOOST_BASE = 2;
-                                const influence = currentAdaptiveInfluences['High AI Confidence'] || 1.0;
-                                score *= (1 + mlProbabilities[type.id] * AI_PROBABILITY_BOOST_BASE) * influence;
-                                details.mlBoostApplied = true;
-                            }
-
-                            // --- PHASE 1: SIGNAL CONFLUENCE - STEP 2: Apply Bonus ---
-                            let confluenceBonus = 1.0;
-                            if (type.id === bestHistorianPickId) { confluenceBonus += 0.75; }
-                            if (type.id === bestPhysicistPickId) { confluenceBonus += 0.75; }
-                            if (type.id === bestAiPickId) { confluenceBonus += 1.0; } // AI gets a slightly larger bonus
-
-                            score *= confluenceBonus;
-                            details.confluenceBonus = confluenceBonus;
-                            // --- END OF PHASE 1 - STEP 2 ---
-
-                            details.finalScore = score; 
-
-                            let primaryFactor = 'Statistical Trends';
-                            let maxInfluenceScore = (details.baseScore > 0 ? details.baseScore : 0.01);
-
-                            if (details.mlBoostApplied && mlProbabilities[type.id] > 0.5) {
-                                const influenceValue = mlProbabilities[type.id] * (currentAdaptiveInfluences['High AI Confidence'] || 1.0);
-                                if (influenceValue * baseScore > maxInfluenceScore) { maxInfluenceScore = influenceValue * baseScore; primaryFactor = 'High AI Confidence'; }
-                            }
-                            if (details.aiLowPocketBoostApplied) {
-                                 const influenceValue = mlProbabilities[type.id] * (currentAdaptiveInfluences['AI-Driven Proximity'] || 1.0);
-                                 if (influenceValue * baseScore > maxInfluenceScore) { maxInfluenceScore = influenceValue * baseScore; primaryFactor = 'AI-Driven Proximity'; }
-                            }
-                            if (details.patternBoostApplied) {
-                                const influenceValue = (details.patternBoostMultiplier - 1) * (currentAdaptiveInfluences['Pattern Detection'] || 1.0);
-                                if (influenceValue * baseScore > maxInfluenceScore) { maxInfluenceScore = influenceValue * baseScore; primaryFactor = 'Pattern Detection'; }
-                            }
-                            if (details.proximityBoostApplied) {
-                                const influenceValue = ((1 + (1 / (1 + details.predictiveDistance))) * (strategyStates.proximityBoost.weight) - 1) * (currentAdaptiveInfluences['Proximity to Last Spin'] || 1.0);
-                                if (influenceValue * baseScore > maxInfluenceScore) { maxInfluenceScore = influenceValue * baseScore; primaryFactor = 'Proximity to Last Spin'; }
-                            }
-                            if (details.weightedZoneBoostApplied) {
-                                if (primaryFactor === 'Statistical Trends' && details.baseScore > 0) {
-                                    primaryFactor = 'Hot Zone Weighting';
-                                }
+                            // 5. AI Confidence Score (up to 25 points)
+                            if (details.mlProbability !== null) {
+                                const aiPoints = details.mlProbability * 25;
+                                score += aiPoints;
+                                if (aiPoints > 5) details.reason.push(`AI Conf (${(details.mlProbability*100).toFixed(0)}%)`);
                             }
                             
-                            if (primaryFactor === 'Statistical Trends' || primaryFactor === 'N/A') {
-                                if (details.hitRate > 60 && details.avgTrend > 2) {
-                                    primaryFactor = 'Strong Historical Performance';
-                                } else if (details.hitRate > 50) {
-                                    primaryFactor = 'Good Historical Hit Rate';
-                                } else if (details.avgTrend > 3) {
-                                    primaryFactor = 'Consistent Trend';
-                                }
-                            }
-                            details.primaryDrivingFactor = primaryFactor;
-                            details.adaptiveInfluenceUsed = currentAdaptiveInfluences[primaryFactor] || 1.0;
+                            details.finalScore = score;
+                            return { type, score, details };
+                        }).filter(c => c && !isNaN(c.score));
 
-
-                            if (DEBUG_MODE) {
-                                console.log("DEBUG: getRecommendation final bestCandidate.details:", details);
-                            }
-                            return { type, score, rate: details.hitRate, avgDuration: details.avgTrend, predictiveDistance: details.predictiveDistance, currentHitRate: details.currentHitRate, historicalAvgHitRate: details.historicalAvgHitRate, details };
-                        }).filter(c => c && !isNaN(c.score) && c.score > 0)
-                        .sort((a, b) => b.score - a.score);
-                        
                         if (candidates.length === 0) {
-                            return { html: '<span class="text-gray-500">Wait for Signal</span><br><span class="text-xs">Not enough data for a recommendation.</span>', patternInfo };
+                            return { html: '<span class="text-gray-500">Wait for Signal</span><br><span class="text-xs">Not enough data for a recommendation.</span>' };
                         }
 
-                        let bestCandidate = candidates[0];
+                        candidates.sort((a, b) => b.score - a.score);
+                        const bestCandidate = candidates[0];
                         
                         if (isForWeightUpdate) {
                             return { bestCandidate };
                         }
+
+                        // --- NEW: Signal Gating based on Point Thresholds ---
+                        let signal = "Wait";
+                        let signalColor = "text-gray-500";
+                        let reason = "(Low Confidence)";
+
+                        if (bestCandidate.score > 25) {
+                            signal = "Strong Play";
+                            signalColor = "text-green-600";
+                            reason = `(${bestCandidate.details.reason.slice(0, 2).join(', ')})`;
+                        } else if (bestCandidate.score > 10) {
+                            signal = "Play";
+                            signalColor = "text-purple-700";
+                            reason = `(${bestCandidate.details.reason.slice(0, 2).join(', ')})`;
+                        }
                         
-                        // --- PHASE 2: HIGH-QUALITY SIGNAL GATE ---
-                        const MINIMUM_CHECKS_REQUIRED = 3;
-
-                        let signal = 'Wait';
-                        let reason = '';
-                        let signalColor = 'text-gray-500';
-
-                        // Hard overrides should come first
-                        const lastHistoryItem = history.length > 0 ? history[history.length - 1] : null;
+                        // Override for Trend Confirmation if enabled
                         if (useTrendConfirmation && !trendStats.lastSuccessState.includes(bestCandidate.type.id) && history.some(item => item.status === 'success')) {
                             signal = 'Wait for Signal';
+                            signalColor = "text-gray-500";
                             reason = `(Waiting for ${bestCandidate.type.label} to be confirmed)`;
-                        } else if (useTableChangeWarnings && lastHistoryItem && lastHistoryItem.status === 'fail' && trendStats.lastSuccessState.includes(bestCandidate.type.id) && trendStats.currentStreaks[bestCandidate.type.id] === 0) {
-                            signal = 'Avoid Now';
-                            reason = `(Pattern Break Warning for ${bestCandidate.type.label})`;
-                            signalColor = 'text-red-600';
-                        } else {
-                            // If no hard override fired, perform the quality check
-                            const qualityChecks = {
-                                hasConfluence: { pass: bestCandidate.details.confluenceBonus > 1.75, label: 'Confluence' },
-                                isGoodRate: { pass: bestCandidate.rate > 48, label: 'Good Rate' },
-                                isGoodProximity: { pass: bestCandidate.predictiveDistance <= 4, label: 'Good Proximity' },
-                                hasMomentum: { pass: trendStats.currentStreaks[bestCandidate.type.id] >= 1, label: 'Has Momentum' },
-                                isGoodAiConfidence: { pass: bestCandidate.details.mlProbability !== null && bestCandidate.details.mlProbability > 0.4, label: 'AI Confident' }
-                            };
-
-                            const passedChecks = Object.values(qualityChecks).filter(check => check.pass);
-                            const qualityChecksPassed = passedChecks.length;
-
-                            if (qualityChecksPassed >= MINIMUM_CHECKS_REQUIRED) {
-                                signal = 'Play';
-                                reason = `(${passedChecks.map(c => c.label).join(', ')})`;
-                                signalColor = 'text-green-600';
-
-                                // Make it a "Strong Play" if it's exceptionally good
-                                if (qualityChecksPassed >= 4 || bestCandidate.details.confluenceBonus > 2.5) {
-                                    signal = 'Strong Play';
-                                }
-
-                            } else {
-                                signal = 'Wait';
-                                reason = `(Signal quality low: ${qualityChecksPassed}/${Object.keys(qualityChecks).length} checks passed)`;
-                                signalColor = 'text-gray-500';
-                            }
                         }
 
-                        // Build the final HTML based on the gate's decision
-                        let finalHtml = ``;
-                        if(signal === 'Avoid Now' || signal === 'Wait' || signal === 'Wait for Signal'){
-                            finalHtml = `<strong class="${signalColor}">${signal}</strong> <br><span class="text-xs text-gray-500">${reason}</span>`;
-                        } else {
-                            finalHtml = `<strong class="${signalColor}">${signal}:</strong> Play <strong style="color: ${bestCandidate.type.textColor};">${bestCandidate.type.label}</strong><br><span class="text-xs text-gray-500">${reason}</span>`;
+                        // Final HTML construction
+                        let finalHtml = `<strong class="${signalColor}">${signal}:</strong> Play <strong style="color: ${bestCandidate.type.textColor};">${bestCandidate.type.label}</strong><br><span class="text-xs text-gray-500">${reason}</span>`;
+                        if (signal.includes('Wait')) {
+                             finalHtml = `<strong class="${signalColor}">${signal}</strong> <br><span class="text-xs text-gray-500">${reason}</span>`;
                         }
 
                         if (useNeighbourFocus && (signal === 'Play' || signal === 'Strong Play')) {
@@ -2705,9 +2474,8 @@ async function handleClearHistory() { // Made async
                             }
                         }
 
-                        return { html: finalHtml, patternInfo, bestCandidate, details: bestCandidate.details };
+                        return { html: finalHtml, bestCandidate, details: bestCandidate.details };
                     }
-
                     function runBoardStateAnalysis(simulatedHistory = history) {
                         if (DEBUG_MODE) {
                             console.log('Running board state analysis...');
