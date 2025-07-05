@@ -2362,30 +2362,39 @@ async function handleClearHistory() { // Made async
                         const currentNum2 = parseInt(dom.number2.value, 10);
                         const lastWinningNumber = confirmedWinsLog.length > 0 ? confirmedWinsLog[confirmedWinsLog.length - 1] : null;
 
-                        // --- NEW: Additive Points-Based Scoring System ---
+                        // --- Additive Points-Based Scoring System ---
                         let candidates = activePredictionTypes.map(type => {
                             let score = 0;
+                             // This details object is now more comprehensive to prevent errors
                             const details = {
+                                baseScore: 0,
                                 hitRate: (boardStats[type.id]?.total > 0 ? (boardStats[type.id]?.success / boardStats[type.id]?.total * 100) : 0),
                                 avgTrend: parseFloat(trendStats.averages[type.id]) || 0,
                                 currentStreak: trendStats.currentStreaks[type.id] || 0,
                                 predictiveDistance: Infinity,
-                                neighbourScore: 0,
+                                proximityBoostApplied: false,
+                                weightedZoneBoostApplied: false,
+                                patternBoostApplied: false, // Retained for future use
+                                patternBoostMultiplier: 1, // Retained for future use
                                 mlProbability: mlProbabilities ? mlProbabilities[type.id] : null,
+                                mlBoostApplied: false,
+                                aiLowPocketBoostApplied: false, // Retained for future use
                                 finalScore: 0,
+                                primaryDrivingFactor: "N/A", // Default value
+                                adaptiveInfluenceUsed: 1.0, // Default value
+                                confluenceBonus: 1.0, // Retained for future use
                                 reason: []
                             };
 
-                            // 1. Base Score from Hit Rate (up to 20 points)
-                            // Awards points for being above a 40% baseline rate
+                            // 1. Base Score from Hit Rate
                             const hitRatePoints = Math.max(0, details.hitRate - 40) * 0.5;
                             score += hitRatePoints;
-                            if (hitRatePoints > 0) details.reason.push(`Hit Rate (${details.hitRate.toFixed(1)}%)`);
+                            if (hitRatePoints > 1) details.reason.push(`Hit Rate`);
 
-                            // 2. Momentum Score from Current Streak (up to 15 points)
+                            // 2. Momentum Score from Current Streak
                             const streakPoints = Math.min(15, details.currentStreak * 5);
                             score += streakPoints;
-                            if (streakPoints > 0) details.reason.push(`Streak (${details.currentStreak})`);
+                            if (streakPoints > 0) details.reason.push(`Streak`);
                             
                             const predictionTypeDefinition = allPredictionTypes.find(t => t.id === type.id);
                             if (!predictionTypeDefinition) return null;
@@ -2393,50 +2402,61 @@ async function handleClearHistory() { // Made async
                             const terminals = terminalMapping?.[baseNum] || [];
                             const hitZone = getHitZone(baseNum, terminals, lastWinningNumber);
 
-                            // 3. Proximity Score (up to 10 points) - IF TOGGLED
+                            // 3. Proximity Score (IF TOGGLED)
                             if (useProximityBoost && lastWinningNumber !== null) {
                                 for (const zoneNum of hitZone) {
                                     const dist = calculatePocketDistance(zoneNum, lastWinningNumber);
                                     if (dist < details.predictiveDistance) details.predictiveDistance = dist;
                                 }
-                                if (details.predictiveDistance <= 5) {
+                                details.proximityBoostApplied = details.predictiveDistance <= 5;
+                                if (details.proximityBoostApplied) {
                                     const proximityPoints = (5 - details.predictiveDistance) * 2;
                                     score += proximityPoints;
-                                    details.reason.push(`Proximity (${details.predictiveDistance})`);
+                                    details.reason.push(`Proximity`);
                                 }
                             }
 
-                            // 4. Neighbour Score (up to 10 points) - IF TOGGLED
+                            // 4. Neighbour Score (IF TOGGLED)
                             if (useWeightedZone) {
-                                details.neighbourScore = hitZone.reduce((sum, num) => sum + (neighbourScores[num]?.success || 0), 0);
-                                const neighbourPoints = Math.min(10, details.neighbourScore * 0.5);
+                                const neighbourScore = hitZone.reduce((sum, num) => sum + (neighbourScores[num]?.success || 0), 0);
+                                const neighbourPoints = Math.min(10, neighbourScore * 0.5);
                                 score += neighbourPoints;
-                                if (neighbourPoints > 0) details.reason.push(`Neighbours`);
+                                details.weightedZoneBoostApplied = neighbourPoints > 0;
+                                if (details.weightedZoneBoostApplied) details.reason.push(`Neighbours`);
                             }
 
-                            // 5. AI Confidence Score (up to 25 points)
+                            // 5. AI Confidence Score
                             if (details.mlProbability !== null) {
                                 const aiPoints = details.mlProbability * 25;
                                 score += aiPoints;
-                                if (aiPoints > 5) details.reason.push(`AI Conf (${(details.mlProbability*100).toFixed(0)}%)`);
+                                details.mlBoostApplied = aiPoints > 0;
+                                if (aiPoints > 5) details.reason.push(`AI Conf`);
                             }
                             
                             details.finalScore = score;
+                            details.baseScore = hitRatePoints + streakPoints; // A more stable definition of baseScore
+                            details.primaryDrivingFactor = details.reason.length > 0 ? details.reason.join('/') : 'N/A';
+                            
                             return { type, score, details };
-                        }).filter(c => c && !isNaN(c.score));
+                        }).filter(c => c && c.details && !isNaN(c.score));
 
                         if (candidates.length === 0) {
                             return { html: '<span class="text-gray-500">Wait for Signal</span><br><span class="text-xs">Not enough data for a recommendation.</span>' };
                         }
 
                         candidates.sort((a, b) => b.score - a.score);
-                        const bestCandidate = candidates[0];
+                        let bestCandidate = candidates[0];
+                        
+                        // Handle cases where no recommendation can be made yet.
+                        if (!bestCandidate) {
+                             return { html: '<span class="text-gray-500">Wait for Signal</span><br><span class="text-xs">Not enough data for a recommendation.</span>', bestCandidate: null, details: null };
+                        }
                         
                         if (isForWeightUpdate) {
                             return { bestCandidate };
                         }
 
-                        // --- NEW: Signal Gating based on Point Thresholds ---
+                        // --- Signal Gating based on Point Thresholds ---
                         let signal = "Wait";
                         let signalColor = "text-gray-500";
                         let reason = "(Low Confidence)";
@@ -2451,7 +2471,6 @@ async function handleClearHistory() { // Made async
                             reason = `(${bestCandidate.details.reason.slice(0, 2).join(', ')})`;
                         }
                         
-                        // Override for Trend Confirmation if enabled
                         if (useTrendConfirmation && !trendStats.lastSuccessState.includes(bestCandidate.type.id) && history.some(item => item.status === 'success')) {
                             signal = 'Wait for Signal';
                             signalColor = "text-gray-500";
@@ -2473,7 +2492,7 @@ async function handleClearHistory() { // Made async
                                 finalHtml += `<br><span class="text-xs text-gray-600">Focus on hot neighbours: <strong>${hotNumbers.join(', ')}</strong></span>`;
                             }
                         }
-
+                        
                         return { html: finalHtml, bestCandidate, details: bestCandidate.details };
                     }
                     function runBoardStateAnalysis(simulatedHistory = history) {
