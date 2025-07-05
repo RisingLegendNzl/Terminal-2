@@ -2253,7 +2253,7 @@ async function handleClearHistory() { // Made async
                             'Consistent Trend': 1.0,
                             'Statistical Trends': 1.0
                         };
-                        isAiReady = false; // This line was already here, which is correct.
+                        isAiReady = false;
                         dom.aiModelStatus.textContent = `AI Model: Need at least ${TRAINING_MIN_HISTORY} confirmed spins to train.`;
                         runAllAnalyses();
                         renderHistory();
