@@ -1,28 +1,34 @@
-// aiWorker.js - Web Worker for TensorFlow.js AI Model (Multi-Output)
+// aiWorker.js - Web Worker for TensorFlow.js AI Model (Ensemble)
 
-// Import TensorFlow.js library within the worker
 importScripts('https://cdn.jsdelivr.net/npm/@tensorflow/tfjs');
 
-// TensorFlow.js specific configurations
-const TFJS_MODEL_STORAGE_KEY = 'roulette-ml-model';
-const SEQUENCE_LENGTH = 5;
-const LSTM_UNITS = 32;
-const EPOCHS = 50;
-const BATCH_SIZE = 16;
-const TRAINING_MIN_HISTORY = 10;
+// --- ENSEMBLE CONFIGURATION ---
+const ENSEMBLE_CONFIG = [
+    {
+        name: 'Specialist',
+        path: 'roulette-ml-model-specialist',
+        lstmUnits: 16, // Smaller, faster model
+        epochs: 40,
+        batchSize: 32,
+    },
+    {
+        name: 'Generalist',
+        path: 'roulette-ml-model-generalist',
+        lstmUnits: 64, // Larger, more complex model
+        epochs: 60,
+        batchSize: 16,
+    }
+];
 
-// Define failure modes for consistency
+const SEQUENCE_LENGTH = 5;
+const TRAINING_MIN_HISTORY = 10;
 const failureModes = ['none', 'normalLoss', 'streakBreak', 'sectionShift'];
 
-let mlModel = null;
-let scaler = null;
+let ensemble = ENSEMBLE_CONFIG.map(config => ({ ...config, model: null, scaler: null }));
 let allPredictionTypes = [];
-let terminalMapping = {};
-let rouletteWheel = [];
-
 let isTraining = false;
 
-// Helper to get number properties
+// Helper to get number properties (unchanged)
 function getNumberProperties(num) {
     const redNumbers = [1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36];
     const getRouletteNumberColor = (number) => {
@@ -31,411 +37,288 @@ function getNumberProperties(num) {
         return 'black';
     };
     const color = getRouletteNumberColor(num);
-
     const isEven = num % 2 === 0 && num !== 0;
     const isOdd = num % 2 !== 0;
     const isHigh = num >= 19 && num <= 36;
     const isLow = num >= 1 && num <= 18;
-    const isZero = num === 0;
-
-    const isD1 = num >= 1 && num <= 12; // First dozen
-    const isD2 = num >= 13 && num <= 24; // Second dozen
-    const isD3 = num >= 25 && num <= 36; // Third dozen
-
-    // Columns (based on standard layout: 1,4,7...; 2,5,8...; 3,6,9...)
+    const isD1 = num >= 1 && num <= 12;
+    const isD2 = num >= 13 && num <= 24;
+    const isD3 = num >= 25 && num <= 36;
     const isCol1 = [1, 4, 7, 10, 13, 16, 19, 22, 25, 28, 31, 34].includes(num);
     const isCol2 = [2, 5, 8, 11, 14, 17, 20, 23, 26, 29, 32, 35].includes(num);
     const isCol3 = [3, 6, 9, 12, 15, 18, 21, 24, 27, 30, 33, 36].includes(num);
-
-
     return {
-        isEven: isEven,
-        isOdd: isOdd,
-        isRed: color === 'red',
-        isBlack: color === 'black',
-        isGreen: color === 'green',
-        isHigh: isHigh,
-        isLow: isLow,
-        isZero: isZero,
-        isD1: isD1,
-        isD2: isD2,
-        isD3: isD3,
-        isCol1: isCol1,
-        isCol2: isCol2,
-        isCol3: isCol3,
+        isEven: isEven ? 1 : 0, isOdd: isOdd ? 1 : 0, isRed: color === 'red' ? 1 : 0,
+        isBlack: color === 'black' ? 1 : 0, isHigh: isHigh ? 1 : 0, isLow: isLow ? 1 : 0,
+        isD1: isD1 ? 1 : 0, isD2: isD2 ? 1 : 0, isD3: isD3 ? 1 : 0,
+        isCol1: isCol1 ? 1 : 0, isCol2: isCol2 ? 1 : 0, isCol3: isCol3 ? 1 : 0,
     };
 }
 
-// Function to prepare data for the multi-output LSTM training
+// Function to prepare data (largely unchanged, creates a universal scaler)
 function prepareDataForLSTM(historyData) {
     const validHistory = historyData.filter(item => item.status === 'success' && item.winningNumber !== null);
     if (validHistory.length < SEQUENCE_LENGTH + 1) {
         self.postMessage({ type: 'status', message: `AI Model: Need at least ${TRAINING_MIN_HISTORY} confirmed spins to train.` });
-        return { xs: null, ys: null, featureCount: 0, groupLabelCount: 0, failureLabelCount: 0 };
+        return { xs: null, ys: null, scaler: null, featureCount: 0 };
     }
 
     const getFeatures = (item) => {
-        const properties = getNumberProperties(item.winningNumber);
-        const features = [
-            item.num1 / 36,
-            item.num2 / 36,
-            item.difference / 36,
-            (item.num1 + item.num2) / 72,
+        const props = getNumberProperties(item.winningNumber);
+        return [
+            item.num1 / 36, item.num2 / 36, item.difference / 36,
             item.pocketDistance !== null ? item.pocketDistance / 18 : 0,
-            // Normalized pocket distance for the *recommended* group
             item.recommendedGroupPocketDistance !== null ? item.recommendedGroupPocketDistance / 18 : 1,
-            properties.isEven ? 1 : 0,
-            properties.isOdd ? 1 : 0,
-            properties.isRed ? 1 : 0,
-            properties.isBlack ? 1 : 0,
-            properties.isGreen ? 1 : 0,
-            properties.isHigh ? 1 : 0,
-            properties.isLow ? 1 : 0,
-            properties.isZero ? 1 : 0,
-            // NEW: Granular features for the AI
-            properties.isD1 ? 1 : 0, // First dozen
-            properties.isD2 ? 1 : 0, // Second dozen
-            properties.isD3 ? 1 : 0, // Third dozen
-            properties.isCol1 ? 1 : 0, // Column 1
-            properties.isCol2 ? 1 : 0, // Column 2
-            properties.isCol3 ? 1 : 0, // Column 3
-            // End NEW features
+            ...Object.values(props),
             ...allPredictionTypes.map(type => item.typeSuccessStatus[type.id] ? 1 : 0)
         ];
-        return features;
+    };
+    
+    const featuresForScaling = validHistory.map(item => getFeatures(item));
+    const newScaler = {
+        min: Array(featuresForScaling[0].length).fill(Infinity),
+        max: Array(featuresForScaling[0].length).fill(-Infinity)
+    };
+    featuresForScaling.forEach(row => {
+        row.forEach((val, i) => {
+            newScaler.min[i] = Math.min(newScaler.min[i], val);
+            newScaler.max[i] = Math.max(newScaler.max[i], val);
+        });
+    });
+
+    const scaleFeature = (value, index) => {
+        const featureMin = newScaler.min[index];
+        const featureMax = newScaler.max[index];
+        if (featureMax === featureMin) return 0;
+        return (value - featureMin) / (featureMax - featureMin);
     };
 
     let rawFeatures = [];
     let rawGroupLabels = [];
     let rawFailureLabels = [];
 
-    const featuresForScaling = validHistory.map(item => getFeatures(item));
-    scaler = {
-        min: Array(featuresForScaling[0].length).fill(Infinity),
-        max: Array(featuresForScaling[0].length).fill(-Infinity)
-    };
-    featuresForScaling.forEach(row => {
-        row.forEach((val, i) => {
-            scaler.min[i] = Math.min(scaler.min[i], val);
-            scaler.max[i] = Math.max(scaler.max[i], val);
-        });
-    });
-
-    const scaleFeature = (value, index) => {
-        const featureMin = scaler.min[index];
-        const featureMax = scaler.max[index];
-        if (featureMax === featureMin) return 0;
-        return (value - featureMin) / (featureMax - featureMin);
-    };
-
     for (let i = 0; i < validHistory.length - SEQUENCE_LENGTH; i++) {
         const sequence = validHistory.slice(i, i + SEQUENCE_LENGTH);
         const targetItem = validHistory[i + SEQUENCE_LENGTH];
-
         const xs_row = sequence.map(item => getFeatures(item).map((val, idx) => scaleFeature(val, idx)));
         rawFeatures.push(xs_row);
-
-        // Label 1: Winning Groups
-        const group_ys_row = allPredictionTypes.map(type => targetItem.typeSuccessStatus[type.id] ? 1 : 0);
-        rawGroupLabels.push(group_ys_row);
-        
-        // Label 2: Failure Modes (one-hot encoded)
-        const failure_ys_row = failureModes.map(mode => (targetItem.failureMode === mode ? 1 : 0));
-        rawFailureLabels.push(failure_ys_row);
+        rawGroupLabels.push(allPredictionTypes.map(type => targetItem.typeSuccessStatus[type.id] ? 1 : 0));
+        rawFailureLabels.push(failureModes.map(mode => (targetItem.failureMode === mode ? 1 : 0)));
     }
 
     const featureCount = rawFeatures.length > 0 ? rawFeatures[0][0].length : 0;
-    const groupLabelCount = allPredictionTypes.length;
-    const failureLabelCount = failureModes.length;
-
     const xs = rawFeatures.length > 0 ? tf.tensor3d(rawFeatures) : null;
-    // Create a dictionary of labels for the two outputs
     const ys = {
         group_output: rawGroupLabels.length > 0 ? tf.tensor2d(rawGroupLabels) : null,
         failure_output: rawFailureLabels.length > 0 ? tf.tensor2d(rawFailureLabels) : null
     };
 
-    return { xs, ys, featureCount, groupLabelCount, failureLabelCount };
+    return { xs, ys, scaler: newScaler, featureCount };
 }
 
-// Function to create the Multi-Output LSTM model architecture
-function createMultiOutputLSTMModel(inputShape, groupOutputUnits, failureOutputUnits) {
-    // Use the functional API to create a multi-output model
-    const input = tf.input({shape: inputShape});
-
-    // Shared LSTM layer
-    const lstmLayer = tf.layers.lstm({
-        units: LSTM_UNITS,
-        returnSequences: false,
-        activation: 'relu'
-    }).apply(input);
-
-    // Dropout layer for regularization
+// Function to create model (now accepts lstmUnits as a parameter)
+function createMultiOutputLSTMModel(inputShape, groupOutputUnits, failureOutputUnits, lstmUnits) {
+    const input = tf.input({ shape: inputShape });
+    const lstmLayer = tf.layers.lstm({ units: lstmUnits, returnSequences: false, activation: 'relu' }).apply(input);
     const dropoutLayer = tf.layers.dropout({ rate: 0.2 }).apply(lstmLayer);
-
-    // Head 1: Output for winning group prediction
-    const groupOutput = tf.layers.dense({
-        units: groupOutputUnits,
-        activation: 'sigmoid',
-        name: 'group_output' // Name must match the label key
-    }).apply(dropoutLayer);
-
-    // Head 2: Output for failure mode prediction
-    const failureOutput = tf.layers.dense({
-        units: failureOutputUnits,
-        activation: 'softmax', // Softmax is used for multi-class classification
-        name: 'failure_output' // Name must match the label key
-    }).apply(dropoutLayer);
-
-    // Create the model with one input and two outputs
-    const model = tf.model({inputs: input, outputs: [groupOutput, failureOutput]});
-
-    // Compile the model with separate loss functions for each output
+    const groupOutput = tf.layers.dense({ units: groupOutputUnits, activation: 'sigmoid', name: 'group_output' }).apply(dropoutLayer);
+    const failureOutput = tf.layers.dense({ units: failureOutputUnits, activation: 'softmax', name: 'failure_output' }).apply(dropoutLayer);
+    const model = tf.model({ inputs: input, outputs: [groupOutput, failureOutput] });
     model.compile({
         optimizer: tf.train.adam(),
-        loss: {
-            'group_output': 'binaryCrossentropy',
-            'failure_output': 'categoricalCrossentropy'
-        },
+        loss: { 'group_output': 'binaryCrossentropy', 'failure_output': 'categoricalCrossentropy' },
         metrics: ['accuracy']
     });
-    
     return model;
 }
 
-// Function to train the LSTM model
-async function trainLSTMModel(historyData) {
+// Main training function (overhauled for ensemble)
+async function trainEnsemble(historyData) {
     if (isTraining) {
-        self.postMessage({ type: 'status', message: 'AI Model: Training already in progress.' });
+        self.postMessage({ type: 'status', message: 'AI Ensemble: Training already in progress.' });
         return;
     }
     isTraining = true;
-    self.postMessage({ type: 'status', message: 'AI Model: Preparing data...' });
+    self.postMessage({ type: 'status', message: 'AI Ensemble: Preparing data...' });
 
-    const { xs, ys, featureCount, groupLabelCount, failureLabelCount } = prepareDataForLSTM(historyData);
-
-    if (!xs || !ys.group_output || !ys.failure_output) {
-        self.postMessage({ type: 'status', message: 'AI Model: Not enough valid data to train.' });
-        if (mlModel) { mlModel.dispose(); mlModel = null; }
-        await clearModelStorage();
+    const { xs, ys, scaler, featureCount } = prepareDataForLSTM(historyData);
+    if (!xs) {
+        self.postMessage({ type: 'status', message: 'AI Ensemble: Not enough valid data to train.' });
         isTraining = false;
         return;
     }
 
-    let modelToTrain;
-    // Check compatibility for the new multi-output model
-    const isModelCompatible = mlModel &&
-                              mlModel.inputs[0].shape[1] === SEQUENCE_LENGTH &&
-                              mlModel.inputs[0].shape[2] === featureCount &&
-                              mlModel.outputs[0].shape[1] === groupLabelCount &&
-                              mlModel.outputs[1].shape[1] === failureLabelCount;
+    // A single scaler is now used for all models
+    self.postMessage({ type: 'saveScaler', payload: JSON.stringify(scaler) });
+    ensemble.forEach(member => member.scaler = scaler);
 
-    if (!isModelCompatible) {
-        if (mlModel) {
-            mlModel.dispose();
-            console.log('Disposed incompatible TF.js model.');
-        }
-        modelToTrain = createMultiOutputLSTMModel([SEQUENCE_LENGTH, featureCount], groupLabelCount, failureLabelCount);
-        console.log('TF.js Multi-Output Model created successfully in worker.');
-    } else {
-        console.log('Re-creating model and copying weights for continued training.');
-        modelToTrain = createMultiOutputLSTMModel([SEQUENCE_LENGTH, featureCount], groupLabelCount, failureLabelCount);
-        modelToTrain.setWeights(mlModel.getWeights());
-        mlModel.dispose();
-    }
-    
-    mlModel = modelToTrain;
+    const groupLabelCount = allPredictionTypes.length;
+    const failureLabelCount = failureModes.length;
 
-    try {
-        self.postMessage({ type: 'status', message: 'AI Model: Training...' });
-        await mlModel.fit(xs, ys, {
-            epochs: EPOCHS,
-            batchSize: BATCH_SIZE,
-            callbacks: {
-                onEpochEnd: (epoch, logs) => {
-                    self.postMessage({ type: 'status', message: `AI Model: Training Epoch ${epoch + 1}/${EPOCHS} - Loss: ${logs.loss.toFixed(4)}` });
+    for (const member of ensemble) {
+        try {
+            self.postMessage({ type: 'status', message: `AI Ensemble: Training ${member.name}...` });
+            if (member.model) member.model.dispose(); // Dispose old model before training
+            
+            member.model = createMultiOutputLSTMModel([SEQUENCE_LENGTH, featureCount], groupLabelCount, failureLabelCount, member.lstmUnits);
+            
+            await member.model.fit(xs, ys, {
+                epochs: member.epochs,
+                batchSize: member.batchSize,
+                callbacks: {
+                    onEpochEnd: (epoch) => {
+                        self.postMessage({ type: 'status', message: `AI Ensemble: Training ${member.name} (Epoch ${epoch + 1}/${member.epochs})` });
+                    }
                 }
-            }
-        });
-        console.log('TF.js Model training complete in worker.');
-        await saveModel(mlModel, scaler);
-        self.postMessage({ type: 'status', message: 'AI Model: Ready!' });
-
-    } catch (error) {
-        console.error('Error during model training in worker:', error);
-        self.postMessage({ type: 'status', message: `AI Model: Training failed! ${error.message}` });
-        if (mlModel) { mlModel.dispose(); mlModel = null; }
-        await clearModelStorage();
-    } finally {
-        xs.dispose();
-        if (ys.group_output) ys.group_output.dispose();
-        if (ys.failure_output) ys.failure_output.dispose();
-        isTraining = false;
+            });
+            await member.model.save(`indexeddb://${member.path}`);
+            console.log(`TF.js Model ${member.name} saved.`);
+        } catch (error) {
+            console.error(`Error training model ${member.name}:`, error);
+            self.postMessage({ type: 'status', message: `AI Ensemble: Training for ${member.name} failed.` });
+        }
     }
+
+    xs.dispose();
+    if (ys.group_output) ys.group_output.dispose();
+    if (ys.failure_output) ys.failure_output.dispose();
+    isTraining = false;
+    self.postMessage({ type: 'status', message: 'AI Ensemble: Ready!' });
 }
 
-// Function to predict using the multi-output model
-async function predictGroupProbabilities(historyData) {
-    if (!mlModel || !scaler) {
-        return null;
-    }
+// Prediction function (overhauled for ensemble)
+async function predictWithEnsemble(historyData) {
+    const activeModels = ensemble.filter(m => m.model && m.scaler);
+    if (activeModels.length === 0) return null;
+
     const validHistory = historyData.filter(item => item.status === 'success' && item.winningNumber !== null);
-    if (validHistory.length < SEQUENCE_LENGTH) {
-        return null;
-    }
+    if (validHistory.length < SEQUENCE_LENGTH) return null;
 
     const lastSequence = validHistory.slice(-SEQUENCE_LENGTH);
-
+    
+    // Use the scaler from the first available model (they are all the same now)
+    const scaler = activeModels[0].scaler;
+    
     const getFeatures = (item) => {
-        const properties = getNumberProperties(item.winningNumber);
-        return [
+        const props = getNumberProperties(item.winningNumber);
+         return [
             item.num1 / 36, item.num2 / 36, item.difference / 36,
-            (item.num1 + item.num2) / 72,
             item.pocketDistance !== null ? item.pocketDistance / 18 : 0,
-            // Normalized pocket distance for the *recommended* group
             item.recommendedGroupPocketDistance !== null ? item.recommendedGroupPocketDistance / 18 : 1,
-            properties.isEven ? 1 : 0, properties.isOdd ? 1 : 0,
-            properties.isRed ? 1 : 0, properties.isBlack ? 1 : 0,
-            properties.isGreen ? 1 : 0, properties.isHigh ? 1 : 0,
-            properties.isLow ? 1 : 0, properties.isZero ? 1 : 0,
-            // Granular features for the AI
-            properties.isD1 ? 1 : 0,
-            properties.isD2 ? 1 : 0,
-            properties.isD3 ? 1 : 0,
-            properties.isCol1 ? 1 : 0,
-            properties.isCol2 ? 1 : 0,
-            properties.isCol3 ? 1 : 0,
+            ...Object.values(props),
+            ...allPredictionTypes.map(type => item.typeSuccessStatus[type.id] ? 1 : 0)
         ];
     };
-
+    
     const scaleFeature = (value, index) => {
-        if (!scaler || scaler.min.length !== getFeatures(validHistory[0]).length) {
-            console.error("Scaler is incompatible with new feature set. Retraining is required.");
-            // Attempt to re-initialize scaler if incompatible (basic fallback)
-            const newFeaturesSample = getFeatures(validHistory[0]);
-            scaler = {
-                min: Array(newFeaturesSample.length).fill(0), // Default to 0 if no min/max can be determined
-                max: Array(newFeaturesSample.length).fill(1)  // Default to 1 for normalized features
-            };
-            self.postMessage({ type: 'status', message: 'AI Model: Scaler re-initialized. Please retrain.' });
-            return value; // Return original value, will likely lead to poor prediction
-        }
+        if (!scaler) return value;
         const featureMin = scaler.min[index];
         const featureMax = scaler.max[index];
         if (featureMax === featureMin) return 0;
         return (value - featureMin) / (featureMax - featureMin);
     };
 
-    const inputFeatures = lastSequence.map(item => getFeatures(item).map((val, idx) => scaleFeature(val, idx)));
-    
     let inputTensor = null;
-    let predictions = [];
     try {
+        const inputFeatures = lastSequence.map(item => getFeatures(item).map((val, idx) => scaleFeature(val, idx)));
         inputTensor = tf.tensor3d([inputFeatures]);
-        predictions = mlModel.predict(inputTensor); // This will return an array of tensors
-        
-        const groupProbs = await predictions[0].data();
-        const failureProbs = await predictions[1].data();
 
-        const result = {
-            groups: {},
-            failures: {}
-        };
+        const allPredictions = await Promise.all(activeModels.map(m => m.model.predict(inputTensor)));
 
-        allPredictionTypes.forEach((type, index) => {
-            result.groups[type.id] = groupProbs[index];
-        });
-        // Ensure failureModes is correctly defined and matches output units
-        const definedFailureModes = ['none', 'normalLoss', 'streakBreak', 'sectionShift']; // Ensure consistency
-        definedFailureModes.forEach((mode, index) => {
-            result.failures[mode] = failureProbs[index];
-        });
+        // Average the predictions
+        const averagedGroupProbs = new Float32Array(allPredictionTypes.length).fill(0);
+        const averagedFailureProbs = new Float32Array(failureModes.length).fill(0);
+
+        for (const prediction of allPredictions) {
+            const groupProbs = await prediction[0].data();
+            const failureProbs = await prediction[1].data();
+            groupProbs.forEach((p, i) => averagedGroupProbs[i] += p);
+            failureProbs.forEach((p, i) => averagedFailureProbs[i] += p);
+            prediction[0].dispose();
+            prediction[1].dispose();
+        }
+
+        averagedGroupProbs.forEach((p, i) => averagedGroupProbs[i] /= allPredictions.length);
+        averagedFailureProbs.forEach((p, i) => averagedFailureProbs[i] /= allPredictions.length);
+
+        const finalResult = { groups: {}, failures: {} };
+        allPredictionTypes.forEach((type, i) => finalResult.groups[type.id] = averagedGroupProbs[i]);
+        failureModes.forEach((mode, i) => finalResult.failures[mode] = averagedFailureProbs[i]);
         
-        return result;
+        return finalResult;
 
     } catch (error) {
-        console.error('Error during ML prediction in worker:', error);
+        console.error('Error during ensemble prediction:', error);
         return null;
     } finally {
         if (inputTensor) inputTensor.dispose();
-        if (predictions && Array.isArray(predictions)) {
-            predictions.forEach(p => p.dispose());
+    }
+}
+
+
+// Storage functions (updated for ensemble)
+async function loadModelsFromStorage() {
+    const loadPromises = ensemble.map(async (member) => {
+        try {
+            member.model = await tf.loadLayersModel(`indexeddb://${member.path}/model.json`);
+            console.log(`TF.js Model ${member.name} loaded from IndexedDB.`);
+            return true;
+        } catch (error) {
+            console.warn(`Could not load model ${member.name}. It may need to be trained.`);
+            return false;
         }
-    }
+    });
+    return Promise.all(loadPromises);
 }
 
-// Save model and scaler
-async function saveModel(modelToSave, currentScaler) {
-    if (!modelToSave) return;
-    try {
-        self.postMessage({ type: 'saveScaler', payload: JSON.stringify(currentScaler) }); // Send scaler to main thread for local storage
-        await modelToSave.save(`indexeddb://${TFJS_MODEL_STORAGE_KEY}`);
-        console.log('TF.js model saved to IndexedDB from worker.');
-    } catch (error) {
-        console.error('Error saving TF.js model from worker:', error);
-    }
+async function clearModelsFromStorage() {
+    const clearPromises = ensemble.map(async (member) => {
+        try {
+            if (member.model) {
+                member.model.dispose();
+                member.model = null;
+            }
+            await tf.io.removeModel(`indexeddb://${member.path}`);
+        } catch (error) {
+            // Error is expected if model doesn't exist, so we don't log it as a critical failure
+        }
+    });
+    await Promise.all(clearPromises);
+    ensemble.forEach(m => m.scaler = null);
+    console.log('All TF.js models and scalers cleared.');
 }
 
-// Load model from IndexedDB
-async function loadModelFromStorage() {
-    try {
-        const loadedModel = await tf.loadLayersModel(`indexeddb://${TFJS_MODEL_STORAGE_KEY}/model.json`);
-        console.log('TF.js model loaded from IndexedDB in worker.');
-        return loadedModel;
-    } catch (error) {
-        console.warn('No TF.js model found in IndexedDB or error loading in worker.');
-        return null;
-    }
-}
-
-// Clear model from IndexedDB
-async function clearModelStorage() {
-    try {
-        await tf.io.removeModel(`indexeddb://${TFJS_MODEL_STORAGE_KEY}`);
-        scaler = null; // Clear scaler as well
-        console.log('TF.js model and scaler cleared from storage by worker.');
-    } catch (error) {
-        console.error('Error clearing TF.js model storage from worker:', error);
-    }
-}
 
 // --- Message Handling for Web Worker ---
 self.onmessage = async (event) => {
     const { type, payload } = event.data;
-
     switch (type) {
         case 'init':
             allPredictionTypes = payload.allPredictionTypes;
-            terminalMapping = payload.terminalMapping;
-            rouletteWheel = payload.rouletteWheel;
-            scaler = payload.scaler ? JSON.parse(payload.scaler) : null; // Load scaler from main thread
-            mlModel = await loadModelFromStorage();
-            if (mlModel) {
-                self.postMessage({ type: 'status', message: 'AI Model: Ready!' });
+            const loadedScaler = payload.scaler ? JSON.parse(payload.scaler) : null;
+            if(loadedScaler) {
+                ensemble.forEach(m => m.scaler = loadedScaler);
+            }
+            const loadResults = await loadModelsFromStorage();
+            if (loadResults.every(Boolean)) { // Only ready if ALL models loaded
+                self.postMessage({ type: 'status', message: 'AI Ensemble: Ready!' });
             } else {
-                self.postMessage({ type: 'status', message: `AI Model: Need at least ${TRAINING_MIN_HISTORY} confirmed spins to train.` });
+                self.postMessage({ type: 'status', message: `AI Ensemble: Need at least ${TRAINING_MIN_HISTORY} confirmed spins to train.` });
             }
             break;
-
         case 'train':
-            await trainLSTMModel(payload.history);
+            await trainEnsemble(payload.history);
             break;
-
         case 'predict':
-            const probabilities = await predictGroupProbabilities(payload.history);
+            const probabilities = await predictWithEnsemble(payload.history);
             self.postMessage({ type: 'predictionResult', probabilities });
             break;
-
         case 'clear_model':
-            if (mlModel) { mlModel.dispose(); mlModel = null; }
-            await clearModelStorage();
-            self.postMessage({ type: 'status', message: 'AI Model: Cleared.' });
+            await clearModelsFromStorage();
+            self.postMessage({ type: 'status', message: 'AI Ensemble: Cleared.' });
             break;
-
         case 'update_config':
-            // Update local config (used for getFeatures in predict and train)
             allPredictionTypes = payload.allPredictionTypes;
-            // No longer passing currentNum1, etc., as worker doesn't need it for local AI
             break;
     }
 };
