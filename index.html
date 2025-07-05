@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1723,12 +1724,26 @@
                     }
                 }
 
-                async function handleHistoricalAnalysis() {
+async function handleHistoricalAnalysis() {
                     if (DEBUG_MODE) {
                         console.log('Analyze Historical Data & Train AI button clicked.');
                     }
                     dom.historicalAnalysisMessage.textContent = '';
-                    const numbers = dom.historicalNumbersInput.value.split(/[\s,]+/).filter(Boolean).map(Number);
+
+                    // --- FIX START ---
+                    // Process the input line by line to preserve the intended order.
+                    const rawInput = dom.historicalNumbersInput.value;
+                    if (!rawInput.trim()) {
+                        dom.historicalAnalysisMessage.textContent = 'Please paste historical numbers.';
+                        return;
+                    }
+
+                    const lines = rawInput.trim().split('\n');
+                    const numbers = lines.flatMap(line => 
+                        line.trim().split(/[\s,]+/).filter(Boolean).map(Number)
+                    );
+                    // --- FIX END ---
+                    
                     if (numbers.length < 3) { dom.historicalAnalysisMessage.textContent = 'Please paste at least 3 numbers.'; return; }
                     if (numbers.some(isNaN) || numbers.some(n => n < 0 || n > 36)) { dom.historicalAnalysisMessage.textContent = 'Please ensure all numbers are valid (0-36).'; return; }
                     
@@ -1748,6 +1763,7 @@
                     };
 
                     const baseTimestamp = Date.now();
+                    // The 'numbers' array is now newest to oldest, so we reverse it to loop from oldest to newest.
                     const reversedNumbers = [...numbers].reverse();
 
                     for (let i = 0; i < reversedNumbers.length - 2; i++) {
@@ -1809,7 +1825,7 @@
                             }
                             const recommendedHit = item.hitTypes.includes(item.recommendedGroupId);
                             if (recommendedHit) {
-                                adaptiveFactorInfluences[primaryFactor] = Math.min(MAX_ADAPTIVE_INFLUENCE, adaptiveFactorInfluences[primaryFactor] + ADAPTIVE_LEARNING_RATE_SUCCESS);
+                                adaptiveFactorInfluences[primaryFactor] = Math.min(MAX_ADAPTIVE_INfluence, adaptiveFactorInfluences[primaryFactor] + ADAPTIVE_LEARNING_RATE_SUCCESS);
                             } else {
                                 adaptiveFactorInfluences[primaryFactor] = Math.max(MIN_ADAPTIVE_INFLUENCE, adaptiveFactorInfluences[primaryFactor] - ADAPTIVE_LEARNING_RATE_FAILURE);
                             }
