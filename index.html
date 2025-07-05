@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -609,6 +610,8 @@
             patternSuccessThreshold: 65,
             triggerMinAttempts: 4,
             triggerSuccessThreshold: 60,
+            // DETRIMENTAL_FAILURE_STREAK and DETRIMENTAL_PENALTY_MULTIPLIER are removed
+            // as their logic is now superseded by the adaptiveFactorInfluences system.
         };
 
         // NEW: Adaptive Learning Rates for Factor Influences
@@ -1850,8 +1853,10 @@
                         dom.aiModelStatus.textContent = `AI Model: Need at least ${TRAINING_MIN_HISTORY} confirmed spins to train. (Current: ${history.filter(item => item.status === 'success').length})`;
                     }
 
-                    // BUG FIX: This line was resetting the automation. It has been removed.
-                    // confirmedWinsLog = []; 
+                    if (DEBUG_MODE) {
+                        console.log('Historical analysis complete. Clearing confirmed wins log for next live game.');
+                    }
+                    confirmedWinsLog = [];
                     dom.number1.value = '';
                     dom.number2.value = '';
 
@@ -2337,73 +2342,10 @@
                         return stats;
                     }
 
-                    function analyzeTableMood(recentHistory, trendStats) {
-                        if (recentHistory.length < 5) return "CHAOTIC"; 
-
-                        let clusteredScore = 0;
-                        let streakyScore = 0;
-                        let choppyScore = 0;
-
-                        // 1. Calculate Clustered Score
-                        const distances = [];
-                        for (let i = 1; i < recentHistory.length; i++) {
-                            if(recentHistory[i].winningNumber !== null && recentHistory[i-1].winningNumber !== null) {
-                                const dist = calculatePocketDistance(recentHistory[i].winningNumber, recentHistory[i-1].winningNumber);
-                                distances.push(dist);
-                            }
-                        }
-                        if (distances.length > 0) {
-                            const avgDistance = distances.reduce((a, b) => a + b, 0) / distances.length;
-                            clusteredScore = Math.max(0, (10 - avgDistance) * 1.5);
-                        }
-                        
-                        // 2. Calculate Streaky Score
-                        const longestStreak = Math.max(0, ...Object.values(trendStats.currentStreaks));
-                        if (longestStreak >= 2) {
-                            streakyScore = longestStreak * 2.5;
-                        }
-
-                        // 3. Calculate Choppy Score
-                        if (recentHistory.length >= 2) {
-                             const lastSpin = recentHistory[recentHistory.length - 1];
-                             const prevSpin = recentHistory[recentHistory.length - 2];
-                             if(lastSpin.hitTypes.length === 1 && prevSpin.hitTypes.length === 1) {
-                                const patternKey = `oscillation-${prevSpin.hitTypes[0]}-${lastSpin.hitTypes[0]}`;
-                                const patternData = patternMemory[patternKey];
-                                if (patternData && patternData.attempts >= 3 && (patternData.successes / patternData.attempts) > 0.6) {
-                                    choppyScore = 8.0; 
-                                }
-                             }
-                        }
-
-                        // Determine the winning mood
-                        const moodScores = {
-                            CLUSTERED: clusteredScore,
-                            TRENDING: streakyScore,
-                            CHOPPY: choppyScore
-                        };
-
-                        let dominantMood = "CHAOTIC";
-                        let maxScore = 4.0; 
-
-                        for (const mood in moodScores) {
-                            if (moodScores[mood] > maxScore) {
-                                maxScore = moodScores[mood];
-                                dominantMood = mood;
-                            }
-                        }
-                        
-                        return dominantMood;
-                    }
-
                     function getRecommendation(trendStats, boardStats, neighbourScores, diff, isForWeightUpdate = false, mlProbabilities = null, currentAdaptiveInfluences = adaptiveFactorInfluences) {
                         const currentNum1 = parseInt(dom.number1.value, 10);
                         const currentNum2 = parseInt(dom.number2.value, 10);
                         const lastWinningNumber = confirmedWinsLog.length > 0 ? confirmedWinsLog[confirmedWinsLog.length -1] : null;
-                        
-                        const recentSuccessfulSpins = history.filter(item => item.status === 'success').slice(-15);
-                        const currentMood = analyzeTableMood(recentSuccessfulSpins, trendStats);
-
                         const RECENT_HISTORY_SIZE = 10;
                         let patternInfo = null;
                         let activePatternBoost = null;
@@ -2491,6 +2433,7 @@
                             }
                         }
                         
+                        // --- PHASE 1: SIGNAL CONFLUENCE - STEP 1: Find Expert Picks ---
                         let bestHistorianPickId = null;
                         let maxBaseScore = -1;
 
@@ -2504,12 +2447,14 @@
                             const predictionTypeDefinition = allPredictionTypes.find(t => t.id === type.id);
                             if (!predictionTypeDefinition) return;
                             
+                            // Historian Check
                             const baseScore = (boardStats[type.id]?.total > 0 ? (boardStats[type.id]?.success / boardStats[type.id]?.total * 100) : 0) * (parseFloat(trendStats.averages[type.id]) || 0);
                             if (baseScore > maxBaseScore) {
                                 maxBaseScore = baseScore;
                                 bestHistorianPickId = type.id;
                             }
 
+                            // Physicist Check
                             if (lastWinningNumber !== null) {
                                 const baseNum = predictionTypeDefinition.calculateBase(currentNum1, currentNum2);
                                 if (baseNum >= 0 && baseNum <= 36) {
@@ -2530,6 +2475,7 @@
                             }
                         });
 
+                        // AI Guru Check
                         if (mlProbabilities) {
                             for (const typeId in mlProbabilities) {
                                 if (mlProbabilities[typeId] > maxMlProb) {
@@ -2538,6 +2484,7 @@
                                 }
                             }
                         }
+                        // --- END OF PHASE 1 - STEP 1 ---
 
                         let candidates = activePredictionTypes.map(type => {
                             const baseScore = (boardStats[type.id]?.total > 0 ? (boardStats[type.id]?.success / boardStats[type.id]?.total * 100) : 0) * (parseFloat(trendStats.averages[type.id]) || 0);
@@ -2558,7 +2505,7 @@
                                 finalScore: 0,
                                 primaryDrivingFactor: 'N/A',
                                 adaptiveInfluenceUsed: 1.0,
-                                confluenceBonus: 1.0 
+                                confluenceBonus: 1.0 // Add this to details for tracking
                             };
 
                             const predictionTypeDefinition = allPredictionTypes.find(t => t.id === type.id);
@@ -2612,13 +2559,15 @@
                                 details.mlBoostApplied = true;
                             }
 
+                            // --- PHASE 1: SIGNAL CONFLUENCE - STEP 2: Apply Bonus ---
                             let confluenceBonus = 1.0;
                             if (type.id === bestHistorianPickId) { confluenceBonus += 0.75; }
                             if (type.id === bestPhysicistPickId) { confluenceBonus += 0.75; }
-                            if (type.id === bestAiPickId) { confluenceBonus += 1.0; } 
+                            if (type.id === bestAiPickId) { confluenceBonus += 1.0; } // AI gets a slightly larger bonus
 
                             score *= confluenceBonus;
                             details.confluenceBonus = confluenceBonus;
+                            // --- END OF PHASE 1 - STEP 2 ---
 
                             details.finalScore = score; 
 
@@ -2659,6 +2608,10 @@
                             details.primaryDrivingFactor = primaryFactor;
                             details.adaptiveInfluenceUsed = currentAdaptiveInfluences[primaryFactor] || 1.0;
 
+
+                            if (DEBUG_MODE) {
+                                console.log("DEBUG: getRecommendation final bestCandidate.details:", details);
+                            }
                             return { type, score, rate: details.hitRate, avgDuration: details.avgTrend, predictiveDistance: details.predictiveDistance, currentHitRate: details.currentHitRate, historicalAvgHitRate: details.historicalAvgHitRate, details };
                         }).filter(c => c && !isNaN(c.score) && c.score > 0)
                         .sort((a, b) => b.score - a.score);
@@ -2673,21 +2626,24 @@
                             return { bestCandidate };
                         }
                         
-                        // --- START ADAPTIVE STRATEGY SWITCH ---
-                        let signal, reason, signalColor;
+                        // --- PHASE 2: HIGH-QUALITY SIGNAL GATE ---
+                        const MINIMUM_CHECKS_REQUIRED = 3;
 
-                        // Give overrides the highest priority
+                        let signal = 'Wait';
+                        let reason = '';
+                        let signalColor = 'text-gray-500';
+
+                        // Hard overrides should come first
                         const lastHistoryItem = history.length > 0 ? history[history.length - 1] : null;
                         if (useTrendConfirmation && !trendStats.lastSuccessState.includes(bestCandidate.type.id) && history.some(item => item.status === 'success')) {
                             signal = 'Wait for Signal';
                             reason = `(Waiting for ${bestCandidate.type.label} to be confirmed)`;
-                            signalColor = 'text-gray-500';
                         } else if (useTableChangeWarnings && lastHistoryItem && lastHistoryItem.status === 'fail' && trendStats.lastSuccessState.includes(bestCandidate.type.id) && trendStats.currentStreaks[bestCandidate.type.id] === 0) {
                             signal = 'Avoid Now';
                             reason = `(Pattern Break Warning for ${bestCandidate.type.label})`;
                             signalColor = 'text-red-600';
                         } else {
-                            // If no hard override, use the adaptive mood logic
+                            // If no hard override fired, perform the quality check
                             const qualityChecks = {
                                 hasConfluence: { pass: bestCandidate.details.confluenceBonus > 1.75, label: 'Confluence' },
                                 isGoodRate: { pass: bestCandidate.rate > 48, label: 'Good Rate' },
@@ -2696,53 +2652,33 @@
                                 isGoodAiConfidence: { pass: bestCandidate.details.mlProbability !== null && bestCandidate.details.mlProbability > 0.4, label: 'AI Confident' }
                             };
 
-                            let minChecks = 3; // Default strictness
-                            let moodReason = "Standard Quality Gate";
-
-                            switch(currentMood) {
-                                case "TRENDING":
-                                    minChecks = 2; // Be less strict if we're following a strong trend
-                                    qualityChecks.hasMomentum.pass = qualityChecks.hasMomentum.pass || trendStats.currentStreaks[bestCandidate.type.id] > 0;
-                                    moodReason = `Trending Mood`;
-                                    break;
-                                case "CLUSTERED":
-                                    minChecks = 2; // Be less strict if we're following a physical cluster
-                                    qualityChecks.isGoodProximity.pass = bestCandidate.predictiveDistance <= 5; // Relax proximity check slightly
-                                    moodReason = `Clustered Mood`;
-                                    break;
-                                case "CHOPPY":
-                                    minChecks = 2;
-                                    moodReason = `Choppy Mood (Pattern Focus)`;
-                                    break;
-                                case "CHAOTIC":
-                                    minChecks = 4; // Be extremely strict in a chaotic market
-                                    moodReason = `Chaotic Mood (High Caution)`;
-                                    break;
-                            }
-                            
                             const passedChecks = Object.values(qualityChecks).filter(check => check.pass);
-                            
-                            if (passedChecks.length >= minChecks) {
+                            const qualityChecksPassed = passedChecks.length;
+
+                            if (qualityChecksPassed >= MINIMUM_CHECKS_REQUIRED) {
                                 signal = 'Play';
-                                reason = `(${moodReason}: ${passedChecks.map(c => c.label).join(', ')})`;
+                                reason = `(${passedChecks.map(c => c.label).join(', ')})`;
                                 signalColor = 'text-green-600';
-                                if (passedChecks.length >= minChecks + 1) {
+
+                                // Make it a "Strong Play" if it's exceptionally good
+                                if (qualityChecksPassed >= 4 || bestCandidate.details.confluenceBonus > 2.5) {
                                     signal = 'Strong Play';
                                 }
+
                             } else {
                                 signal = 'Wait';
-                                reason = `(${moodReason}: Low Signal Quality ${passedChecks.length}/${minChecks})`;
+                                reason = `(Signal quality low: ${qualityChecksPassed}/${Object.keys(qualityChecks).length} checks passed)`;
                                 signalColor = 'text-gray-500';
                             }
                         }
 
+                        // Build the final HTML based on the gate's decision
                         let finalHtml = ``;
                         if(signal === 'Avoid Now' || signal === 'Wait' || signal === 'Wait for Signal'){
                             finalHtml = `<strong class="${signalColor}">${signal}</strong> <br><span class="text-xs text-gray-500">${reason}</span>`;
                         } else {
                             finalHtml = `<strong class="${signalColor}">${signal}:</strong> Play <strong style="color: ${bestCandidate.type.textColor};">${bestCandidate.type.label}</strong><br><span class="text-xs text-gray-500">${reason}</span>`;
                         }
-                        // --- END ADAPTIVE STRATEGY SWITCH ---
 
                         if (useNeighbourFocus && (signal === 'Play' || signal === 'Strong Play')) {
                             const baseNum = bestCandidate.type.calculateBase(currentNum1, currentNum2);
@@ -2805,10 +2741,10 @@
                                 const predictionTypeDefinition = allPredictionTypes.find(t => t.id === type.id);
                                 if (!predictionTypeDefinition) return;
                                 const baseNum = predictionTypeDefinition.calculateBase(item.num1, item.num2);
-                                
+
                                 if (baseNum < 0 || baseNum > 36) return;
+
                                 const terminals = terminalMapping[baseNum] || [];
-                                const numTerminals = terminals.length;
                                 const points = {};
                                 let baseNeighbourCount = (terminals.length === 1) ? 3 : (terminals.length >= 2) ? 1 : 0;
                                 if (baseNeighbourCount > 0) getNeighbours(baseNum, baseNeighbourCount).forEach(n => { points[n] = (points[n] || 0) + 1; });
