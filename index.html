@@ -2567,7 +2567,7 @@
                                     allStreaksForType.push(currentStreaks[type.id]);
                                 }
                                 averages[type.id] = (allStreaksForType.length > 0) ?
-                                    (allStreaksForType.reduce((a, b) => a + b, 0) / allStreaksForType.length).toFixed(1) : '0.0';
+                                (allStreaksForType.reduce((a, b) => a + b, 0) / allStreaksForType.length) : 0;
                                 
                                 averageHitRates[type.id] = totalOccurrences[type.id] > 0 ?
                                     (successfulOccurrences[type.id] / totalOccurrences[type.id] * 100) : 0;
