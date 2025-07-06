@@ -596,7 +596,7 @@
 
     <script>
         // IMPORTANT: This key is exposed and should not be used in production without securing it.
-        const GOOGLE_API_KEY = "YOUR_API_KEY_HERE";
+        const GOOGLE_API_KEY = "AIzaSyDiQV1meCtk6XAMBzGymv-GERLRe1EqPw0";
 
         const DEBUG_MODE = true; // Set to 'true' for debugging, 'false' for production.
 
@@ -1108,15 +1108,12 @@
                     let losses = 0;
 
                     history.forEach(item => {
-                        if (item.recommendedGroupId) {
-                            if (item.hitTypes && item.hitTypes.includes(item.recommendedGroupId)) {
-                                wins++;
-                            } else {
-                                if (item.winningNumber !== null) {
-                                    losses++;
-                                }
-                            }
-                        }
+                    // Count all confirmed spins regardless of whether a specific recommendation was made
+                    if (item.status === 'success' && item.winningNumber !== null) {
+                        wins++;
+                    } else if (item.status === 'fail' && item.winningNumber !== null) {
+                        losses++;
+                    }
                     });
 
                     dom.winCount.textContent = wins;
