@@ -1,0 +1,2810 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Automated Terminal Calculator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script async src="https://docs.opencv.org/4.x/opencv.js"></script>
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; }
+        .card {
+            background-color: #ffffff;
+            border-radius: 16px;
+            box-shadow: 0 10px 35px rgba(0, 0, 0, 0.08), 0 2px 8px rgba(0,0,0,0.06);
+        }
+        .form-input {
+            border: 2px solid #e2e8f0; border-radius: 8px; padding: 12px;
+            font-size: 1rem; width: 100%; transition: border-color 0.3s ease;
+        }
+        .form-input:focus { outline: none; border-color: #4f46e5; }
+        .btn {
+            font-weight: 600; padding: 12px 20px; border-radius: 8px;
+            transition: all 0.2s ease; border: 2px solid transparent; cursor: pointer;
+        }
+        .btn:disabled { background-color: #e5e7eb; color: #6b7280; cursor: not-allowed; }
+        .btn-primary { background-color: #4f46e5; color: #ffffff; }
+        .btn-primary:hover:not(:disabled) { background-color: #4338ca; transform: translateY(-1px); }
+        .btn-secondary { background-color: #eef2ff; color: #4f46e5; }
+        .btn-secondary:hover:not(:disabled) { background-color: #e0e7ff; }
+        .btn-danger { background-color: #fee2e2; color: #dc2626; }
+        .btn-danger:hover { background-color: #fecaca; }
+        
+        .history-list, .analysis-list { max-height: 350px; overflow-y: auto; padding-right: 8px; }
+        .history-item {
+            background-color: #f8fafc;
+            border: 1px solid #e2e8f0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: all 0.2s ease;
+            padding: 12px 20px; /* Adjusted padding for more space */
+            border-radius: 8px;
+            position: relative; /* Added for badge positioning */
+            flex-wrap: wrap; /* Allow content to wrap if needed */
+        }
+        .history-item.is-success { background-color: #f0fdf4; border-color: #22c55e; }
+        .history-item.is-fail { background-color: #fef2f2; border-color: #ef4444; }
+
+        .state-badge {
+            font-size: 0.75rem;
+            font-weight: 700;
+            padding: 2px 6px;
+            border-radius: 6px;
+            color: white;
+            position: absolute;
+            top: -10px;
+            left: 50%; /* Position its left edge at 50% of parent's width */
+            transform: translateX(-50%); /* Shift it back by half its own width to truly center */
+            z-index: 10; /* Ensure it's on top of other elements */
+            white-space: nowrap;
+        }
+        /* Dynamic background colors based on prediction type ID */
+        .bg-amber-500 { background-color: #f59e0b; } /* Orange/Amber for Minus Group */
+        .bg-blue-500 { background-color: #3b82f6; } /* Blue for Result Group */
+        .bg-red-500 { background-color: #ef4444; } /* Red for Plus Group */
+        .bg-sumMinus { background-color: #8b5cf6; } /* Purple */
+        .bg-sumResult { background-color: #10b981; } /* Emerald */
+        .bg-sumPlus { background-color: #f43f5e; } /* Rose */
+
+        .status-box {
+            width: 24px; height: 24px; border-radius: 6px;
+            transition: all 0.2s ease;
+            flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+        }
+        .status-box svg { width: 16px; height: 16px; stroke-width: 2.5; color: #ffffff; }
+        
+        .success-box { border: 2px solid #dcfce7; background-color: #f0fdf4; }
+        .is-success .success-box { background-color: #22c55e; border-color: #16a34a; }
+
+        .fail-box { border: 2px solid #fee2e2; background-color: #fef2f2; }
+        .is-fail .fail-box { background-color: #ef4444; border-color: #dc2626; }
+
+        .delete-btn {
+            width: 32px; height: 32px; border-radius: 8px; cursor: pointer;
+            transition: all 0.2s ease; flex-shrink: 0; display: flex;
+            align-items: center; justify-content: center;
+            border: 2px solid #e5e7eb; background-color: #fff;
+        }
+        .delete-btn svg { color: #9ca3af; width: 20px; height: 20px; stroke-width: 2; }
+        .delete-btn:hover { background-color: #f3f4f6; border-color: #d1d5db;}
+        
+        .swap-btn {
+            height: 40px; width: 40px;
+            background-color: #fff;
+            border: 2px solid #e2e8f0;
+            border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer; transition: all 0.2s ease; color: #9ca3af;
+        }
+        .swap-btn:hover { color: #4f46e5; border-color: #c7d2fe; transform: rotate(180deg); }
+
+        .result-display { border-radius: 12px; background-color: #f8fafc; padding: 16px; }
+        
+        /* Toggle Switch styles */
+        .toggle-label {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            cursor: pointer;
+            width: 100%;
+            padding: 0.5rem 0;
+        }
+        .toggle-checkbox {
+            opacity: 0;
+            width: 0;
+            height: 0;
+            position: absolute;
+        }
+        .toggle-switch {
+            width: 52px;
+            height: 32px;
+            background-color: #e5e7eb;
+            border-radius: 9999px;
+            position: relative;
+            transition: background-color 0.2s ease-in-out;
+            flex-shrink: 0;
+        }
+        .toggle-knob {
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            width: 28px;
+            height: 28px;
+            background-color: white;
+            border-radius: 9999px;
+            transition: transform 0.2s ease-in-out;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .toggle-checkbox:checked + .toggle-switch {
+            background-color: #4f46e5;
+        }
+        .toggle-checkbox:checked + .toggle-switch .toggle-knob {
+            transform: translateX(20px);
+        }
+        
+        /* Strategy Guide Dropdown */
+        .strategy-guide-content {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.5s ease-in-out, padding-top 0.5s ease-in-out, margin-top 0.5s ease-in-out;
+            padding-top: 0;
+            padding-bottom: 0;
+            border-top: 1px solid transparent;
+        }
+        .strategy-guide-content.open {
+            max-height: 500px;
+            margin-top: 1rem;
+            padding-top: 1rem;
+            border-color: #e5e7eb;
+            overflow-y: auto;
+        }
+        .strategy-guide-content h4 { font-weight: 600; color: #374151; margin-top: 0.5rem; }
+        .strategy-guide-content p { color: #6b7280; font-size: 0.875rem; }
+
+        /* Roulette Wheel Styles */
+        #rouletteWheelContainer {
+            width: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-top: 1rem;
+        }
+        #rouletteWheel {
+            border: 2px solid #e2e8f0;
+            border-radius: 50%;
+            background-color: #f8fafc;
+        }
+        .wheel-number-circle.red { fill: #ef4444; stroke: #b91c1c; }
+        .wheel-number-circle.black { fill: #1f2937; stroke: #111827; }
+        .wheel-number-circle.green { fill: #22c55e; stroke: #16a34a; }
+
+        .wheel-number-text {
+            font-size: 8px; /* Adjusted for better fit */
+            font-weight: 600;
+            fill: white;
+            pointer-events: none; /* Allows click through to circle */
+        }
+
+        /* Highlighting for current calculation */
+        .wheel-number-circle.highlight-diffMinus { stroke: #f59e0b; stroke-width: 3px; } /* Orange */
+        .wheel-number-circle.highlight-diffResult { stroke: #3b82f6; stroke-width: 3px; } /* Blue */
+        .wheel-number-circle.highlight-diffPlus { stroke: #ef4444; stroke-width: 3px; } /* Red */
+        .wheel-number-circle.highlight-sumMinus { stroke: #8b5cf6; stroke-width: 3px; } /* Purple */
+        .wheel-number-circle.highlight-sumResult { stroke: #10b981; stroke-width: 3px; } /* Emerald */
+        .wheel-number-circle.highlight-sumPlus { stroke: #f43f5e; stroke-width: 3px; } /* Rose */
+        .wheel-number-circle.highlight-winning { stroke: #10b981; stroke-width: 4px; } /* Stronger green for winning number */
+
+        .roulette-legend-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.875rem;
+            color: #4b5563;
+        }
+        .roulette-legend-color {
+            width: 16px;
+            height: 16px;
+            border-radius: 4px;
+        }
+        .bg-roulette-red { background-color: #ef4444; }
+        .bg-roulette-black { background-color: #1f2937; }
+        .bg-roulette-green { background-color: #22c55e; }
+        .bg-highlight-diffMinus { background-color: #f59e0b; }
+        .bg-highlight-diffResult { background-color: #3b82f6; }
+        .bg-highlight-diffPlus { background-color: #ef4444; }
+        .bg-highlight-sumMinus { background-color: #8b5cf6; }
+        .bg-highlight-sumResult { background-color: #10b981; }
+        .bg-highlight-sumPlus { background-color: #f43f5e; }
+        .text-pink-400 { color: #f472b6; } /* Light pink for distance numbers */
+
+        /* Added text color classes for specific groups */
+        .text-purple-700 { color: #7e22ce; } /* For base number highlight */
+
+        /* Pattern Alert styles */
+        .pattern-alert {
+            background-color: #eef2ff;
+            border: 2px solid #c7d2fe;
+            color: #4338ca;
+            border-radius: 8px;
+            padding: 12px;
+            margin-top: 1rem;
+            font-size: 0.875rem;
+            text-align: center;
+            font-weight: 500;
+        }
+
+        /* Explainable AI Details Section */
+        .ai-details-section {
+            background-color: #f0f4f8; /* Light blue-gray background */
+            border-top: 1px solid transparent; /* Start with transparent border */
+            border-radius: 0 0 8px 8px;
+            padding: 0 16px; /* Start with 0 padding-top/bottom */
+            margin-top: 0; /* Start with 0 margin-top */
+            font-size: 0.8rem;
+            color: #4a5568;
+            max-height: 0;
+            overflow: hidden;
+            opacity: 0;
+            visibility: hidden;
+            display: none; /* Hidden by default */
+            transition: max-height 0.5s ease-out, padding 0.5s ease-out, margin-top 0.5s ease-out, border-top-color 0.5s ease-out, opacity 0.3s ease-out, visibility 0.3s ease-out;
+        }
+        .ai-details-section.open {
+            max-height: 500px; /* Adjust as needed for content */
+            padding: 12px 16px; /* Apply padding when open */
+            margin-top: 8px; /* Apply margin when open */
+            border-top-color: #e2e8f0; /* Apply border color when open */
+            opacity: 1;
+            visibility: visible;
+            display: block; /* Show when open */
+        }
+        .ai-details-section ul {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        .ai-details-section li {
+            margin-bottom: 4px;
+        }
+        .ai-details-toggle {
+            display: block;
+            width: fit-content;
+            margin-top: 8px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: #4f46e5;
+            cursor: pointer;
+            text-decoration: underline;
+            transition: color 0.2s ease;
+        }
+        .ai-details-toggle:hover {
+            color: #4338ca;
+        }
+    </style>
+</head>
+<body class="text-gray-800 py-10 px-4">
+    <div class="w-full max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <main class="space-y-8">
+            <div class="card p-8 space-y-6">
+                <div class="text-center">
+                    <h1 class="text-3xl font-bold text-gray-800">Automated Terminal Calculator</h1>
+                </div>
+
+                <div class="flex items-center space-x-4">
+                    <div class="flex-1 space-y-2">
+                        <label for="number1" class="text-sm font-medium text-gray-700">Number to Subtract</label>
+                        <input type="number" id="number1" class="form-input">
+                    </div>
+                    <button id="swapButton" class="swap-btn mt-8 flex-shrink-0" aria-label="Swap numbers">
+                        <svg class="w-5 h-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M7 16V4m0 12l-4-4m4 4l4-4m6 8v-12m0 12l-4-4m4 4l4-4" />
+                        </svg>
+                    </button>
+                    <div class="flex-1 space-y-2">
+                        <label for="number2" class="text-sm font-medium text-gray-700">Subtract From</label>
+                        <input type="number" id="number2" class="form-input">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-4">
+                    <button id="clearInputsButton" class="w-full btn btn-secondary">Clear Inputs</button>
+                    <button id="calculateButton" class="w-full btn btn-primary">Calculate</button>
+                </div>
+                
+                <div id="resultDisplay" class="hidden"></div>
+            </div>
+
+            <div class="card p-8 space-y-4" id="historySection">
+                <div class="flex justify-between items-center">
+                    <div class="flex items-center gap-4">
+                        <h2 class="text-xl font-bold text-gray-700">History</h2>
+                        <div class="text-sm font-medium">
+                            <span class="text-green-600 font-semibold">Wins: <span id="winCount">0</span></span> |
+                            <span class="text-red-600 font-semibold">Losses: <span id="lossCount">0</span></span>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                            <button id="historyInfoToggle" class="bg-gray-100 text-gray-600 hover:bg-gray-200 px-3 py-1 rounded-md text-sm font-semibold transition-colors duration-200">
+                                Info
+                                <svg class="inline-block w-4 h-4 ml-1 -mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                            </button>
+                            <div id="historyInfoDropdown" class="absolute right-0 mt-2 w-72 bg-white border border-gray-200 rounded-lg shadow-lg p-4 text-sm text-gray-700 z-10 hidden">
+                                <p class="font-semibold mb-2">History Log Insights:</p>
+                                <ul class="list-disc pl-4 space-y-1">
+                                    <li><strong class="text-gray-800">Reco: [Group] (Hit)</strong> <span class="text-xs text-gray-500">(Group Color Badge):</span> Your recommended group was successful.</li>
+                                    <li><strong class="text-gray-800">Reco: [Group] (Missed), Hit: [Other Group(s)]</strong> <span class="text-xs text-gray-500">(Red Badge):</span> Your recommended group missed, but another group happened to hit.</li>
+                                    <li><strong class="text-gray-800">Reco: [Group] (Missed)</strong> <span class="text-xs text-gray-500">(Group Color Badge/Red Cross):</span> Your recommended group and all other active groups missed.</li>
+                                    <li><strong class="text-green-600">Green checkmark:</strong> Overall, at least one active group hit.</li>
+                                    <li><strong class="text-red-600">Red cross:</strong> Overall, no active group hit.</li>
+                                </ul>
+                            </div>
+                        <button id="clearHistoryButton" class="btn btn-danger text-sm py-2 px-3">Clear History</button>
+                    </div>
+                </div>
+                <ul id="historyList" class="history-list space-y-3"></ul>
+            </div>
+        </main>
+        
+        <aside class="space-y-8">
+            <div class="card p-8">
+                <div id="rouletteWheelSection">
+                    <h2 class="text-xl font-bold text-gray-700">Roulette Wheel Visualizer</h2>
+                    <div id="rouletteWheelContainer"></div>
+                    <div class="mt-4 grid grid-cols-2 gap-2 text-sm" id="rouletteLegend">
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card p-8 space-y-4">
+                <h2 class="text-xl font-bold text-gray-700">Video Analysis Engine</h2>
+                <p class="text-sm text-gray-500">Upload a short video of the spin result to detect the winning number.</p>
+                
+                <div id="videoUploadContainer" class="mt-2">
+                    <input type="file" id="videoUpload" class="hidden" accept="video/*">
+                    <label for="videoUpload" id="videoUploadLabel" class="w-full text-center btn btn-secondary cursor-pointer">Upload Spin Video</label>
+                </div>
+
+                <div id="videoControlsContainer" class="mt-2 grid grid-cols-2 gap-2 hidden">
+                    <button id="clearVideoButton" class="w-full btn btn-danger">Clear Video</button>
+                    <button id="analyzeVideoButton" class="w-full btn btn-primary">Analyze Video</button>
+                </div>
+
+                <p id="videoStatus" class="text-sm text-center text-gray-600 h-4 mt-2"></p>
+                <video id="videoPlayer" class="w-full h-48 object-cover rounded-lg hidden bg-gray-900" controls></video>
+                <canvas id="frameCanvas" class="w-full h-48 object-cover rounded-lg hidden mt-2"></canvas>
+            </div>
+
+            <div class="card p-8 space-y-4">
+                <h2 class="text-xl font-bold text-gray-700">Global Analysis</h2>
+                <p class="text-sm text-gray-500">Recalculate all analysis panels based on the current strategy settings. This is useful for back-testing strategies on the entire loaded history.</p>
+                <button id="recalculateAnalysisButton" class="w-full btn btn-secondary mt-2">Recalculate All Analyses</button>
+            </div>
+
+            <div class="card p-8 space-y-4">
+                <h2 class="text-xl font-bold text-gray-700">AI Data Input & Training</h2>
+                <p class="text-sm text-gray-500">Provide historical data to train the AI model.</p>
+                
+                <div id="aiHistoricalDataInputSection">
+                    <p class="text-sm text-gray-500">Paste numbers separated by space, comma, or newline, from newest to oldest.</p>
+                    <textarea id="historicalNumbersInput" class="form-input" rows="4" placeholder="e.g., 10, 5, 22, ... (10 is newest)"></textarea>
+                    <div class="mt-2">
+                        <input type="file" id="imageUpload" class="hidden" accept="image/*">
+                        <label for="imageUpload" id="imageUploadLabel" class="w-full text-center btn btn-secondary cursor-pointer">Upload Image of History</label>
+                    </div>
+                    <button id="analyzeHistoricalDataButton" class="w-full btn btn-primary mt-2">Analyze Historical Data & Train AI</button>
+                </div>
+            </div>
+
+            <div class="card p-8 space-y-4">
+                <h2 class="text-xl font-bold text-gray-700">AI Status & Analysis</h2>
+                <p class="text-sm text-gray-500">Monitor the AI's current status and performance.</p>
+                <p id="historicalAnalysisMessage" class="text-sm text-gray-600 mt-2 text-center"></p>
+                <div id="aiModelStatus" class="text-sm text-gray-700 text-center font-medium"></div>
+            </div>
+
+            <div class="card p-8">
+                <div id="presetStrategyGuideHeader" onclick="toggleGuide('presetStrategyGuideContent')" class="flex justify-between items-center cursor-pointer">
+                    <h2 class="text-xl font-bold text-gray-700">Strategy Presets</h2>
+                    <button class="text-indigo-600 hover:text-indigo-800 font-semibold text-sm">What do these do?</button>
+                </div>
+                <div id="presetStrategyGuideContent" class="strategy-guide-content">
+                    <div class="space-y-4">
+                        <div>
+                            <h4 class="font-bold text-gray-800">Highest Win Rate</h4>
+                            <p>Enables `Neighbour Score Weighting` and `Use Proximity Boost` while disabling all others. This mode plays every round and had the highest overall win rate (51.5%) based on simulations.</p>
+                        </div>
+                        <div>
+                            <h4 class="font-bold text-gray-800">Balanced & Safe</h4>
+                            <p>Enables all strategies in the disciplined 'Strict' mode. This provides a good win rate (48.9%) on the spins it plays by waiting for trend confirmation.</p>
+                        </div>
+                            <div>
+                            <h4 class="font-bold text-gray-800">Aggressive Signals</h4>
+                            <p>Enables all strategies and turns on `Less Strict Mode`. This uses the 'safe' logic but is much more likely to find and flag `(High Confidence)` opportunities.</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="pt-4 grid grid-cols-1 md:grid-cols-3 gap-2">
+                    <button id="setHighestWinRatePreset" class="btn btn-secondary text-sm">Highest Win Rate</button>
+                    <button id="setBalancedSafePreset" class="btn btn-secondary text-sm">Balanced & Safe</button>
+                    <button id="setAggressiveSignalsPreset" class="btn btn-secondary text-sm">Aggressive</button>
+                </div>
+            </div>
+
+            <div class="card p-8">
+                    <div id="baseStrategyGuideHeader" onclick="toggleGuide('baseStrategyGuideContent')" class="flex justify-between items-center cursor-pointer">
+                        <h2 class="text-xl font-bold text-gray-700">Base Strategies</h2>
+                        <button class="text-indigo-600 hover:text-indigo-800 font-semibold text-sm">What do these do?</button>
+                    </div>
+                    <div id="baseStrategyGuideContent" class="strategy-guide-content">
+                        <div class="space-y-4">
+                            <div>
+                                <h4 class="font-bold text-gray-800">Wait for Trend Confirmation</h4>
+                                <p>When enabled, the app becomes more cautious. It will only issue a "Play" recommendation if its top-ranked state is the same as the state that won on the previous successful spin. Otherwise, it will advise you to wait for a stronger signal.</p>
+                            </div>
+                            <div>
+                                <h4 class="font-bold text-gray-800">Use Neighbour Score Weighting</h4>
+                                <p>When enabled, this makes the recommendation smarter. It boosts the score of states whose "hit zones" contain numbers that are currently "hot" in the "Neighbour Analysis" panel.</p>
+                            </div>
+                                <div>
+                                <h4 class="font-bold text-gray-800">Use Proximity Boost</h4>
+                                <p>When enabled, this gives a score boost to the state whose hit zone is physically closest on the roulette wheel to the last number spun, based on the theory of wheel "gravity".</p>
+                            </div>
+                            <div>
+                                <h4 class="font-bold text-gray-800">Show Pocket Distance in History</h4>
+                                <p>When enabled, each successful history entry will display the shortest "pocket distance" from the winning number to the successful prediction's hit zone.</p>
+                            </div>
+                            <div>
+                                <h4 class="font-bold text-gray-800">Prioritize Lowest Pocket Distance</h4>
+                                <p>When enabled, the recommendation will prioritize the group(s) whose hit zone is closest (pocket distance 0 or 1) to the last confirmed winning number. This overrides other strategy weightings if a very close distance is found.</p>
+                            </div>
+                            <div>
+                                <h4 class="font-bold text-gray-800">Enable Advanced Calculation Methods</h4>
+                                <p>When enabled, the app will track and recommend based on additional calculation methods (Sum, Sum +/- 1) alongside the standard Difference-based methods. All active methods will compete for the primary recommendation and have their performance tracked.</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="pt-2 divide-y divide-gray-200">
+                        <label class="toggle-label">
+                            <span class="font-medium text-gray-700">Wait for Trend Confirmation</span>
+                            <input type="checkbox" id="trendConfirmationToggle" class="toggle-checkbox">
+                            <div class="toggle-switch"><div class="toggle-knob"></div></div>
+                        </label>
+                        <label class="toggle-label">
+                            <span class="font-medium text-gray-700">Use Neighbour Score Weighting</span>
+                            <input type="checkbox" id="weightedZoneToggle" class="toggle-checkbox">
+                            <div class="toggle-switch"><div class="toggle-knob"></div></div>
+                        </label>
+                        <label class="toggle-label">
+                            <span class="font-medium text-gray-700">Use Proximity Boost</span>
+                            <input type="checkbox" id="proximityBoostToggle" class="toggle-checkbox">
+                            <div class="toggle-switch"><div class="toggle-knob"></div></div>
+                        </label>
+                        <label class="toggle-label">
+                            <span class="font-medium text-gray-700">Show Pocket Distance</span>
+                            <input type="checkbox" id="pocketDistanceToggle" class="toggle-checkbox">
+                            <div class="toggle-switch"><div class="toggle-knob"></div></div>
+                        </label>
+                        <label class="toggle-label">
+                            <span class="font-medium text-gray-700">Prioritize Lowest Pocket Distance</span>
+                            <input type="checkbox" id="lowestPocketDistanceToggle" class="toggle-checkbox">
+                            <div class="toggle-switch"><div class="toggle-knob"></div></div>
+                        </label>
+                        <label class="toggle-label">
+                            <span class="font-medium text-gray-700">Enable Advanced Calculations</span>
+                            <input type="checkbox" id="advancedCalculationsToggle" class="toggle-checkbox">
+                            <div class="toggle-switch"><div class="toggle-knob"></div></div>
+                        </label>
+                    </div>
+            </div>
+                <div class="card p-8">
+                    <div id="advancedStrategyGuideHeader" onclick="toggleGuide('advancedStrategyGuideContent')" class="flex justify-between items-center cursor-pointer">
+                        <h2 class="text-xl font-bold text-gray-700">Advanced Strategies</h2>
+                        <button class="text-indigo-600 hover:text-indigo-800 font-semibold text-sm">What do these do?</button>
+                    </div>
+                    <div id="advancedStrategyGuideContent" class="strategy-guide-content">
+                        <div class="space-y-4">
+                            <div>
+                                <h4 class="font-bold text-gray-800">Dynamic Best Strategy</h4>
+                                <p>When enabled, the app will automatically analyze its recent history to identify which single prediction method is performing the best and advise playing it.</p>
+                            </div>
+                            <div>
+                                <h4 class="font-bold text-gray-800">Adaptive Play Signals</h4>
+                                <p>Provides more nuanced betting advice ('Strong Play', 'Wait', 'Avoid Now') based on the quality and risk of the current signal.</p>
+                            </div>
+                            <div>
+                                <h4 class="font-bold text-gray-800">Table Change Warnings</h4>
+                                <p>Provides warnings when a previously strong pattern seems to be breaking, helping you avoid potential losing streaks.</p>
+                            </div>
+                                <div>
+                                <h4 class="font-bold text-gray-800">Due for a Hit (Contrarian)</h4>
+                                <p>When enabled, this strategy looks for a state that has been performing well below its historical average and recommends it, betting on a return to the mean.</p>
+                            </div>
+                            <div>
+                                <h4 class="font-bold text-gray-800">Neighbour Focus</h4>
+                                <p>When enabled, this strategy refines the main recommendation by highlighting the "hottest" numbers from the Neighbour Analysis that fall within the recommended group's hit zone.</p>
+                            </div>
+                            <div>
+                                <h4 class="font-bold text-gray-800">Less Strict Mode</h4>
+                                <p>When enabled, this relaxes the conditions for a "(High Confidence)" recommendation. It will be shown if the top state has a very high hit rate (over 60%) or a long winning streak (3 or more), removing the need for trend confirmation.</p>
+                            </div>
+                            <div>
+                                <h4 class="font-bold text-gray-800">Dynamic Terminal Neighbour Count</h4>
+                                <p>When enabled, the "hit zone" for a prediction will dynamically adjust its terminal neighbour count based on whether the winning number is a direct hit or a neighbor. If the winning number is the base number or a direct terminal, the terminal neighbour count will be 0. Otherwise, it will use the standard terminal neighbour count (3 or 1).</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="pt-2 divide-y divide-gray-200">
+                        <label class="toggle-label">
+                            <span class="font-medium text-gray-700">Dynamic Best Strategy</span>
+                            <input type="checkbox" id="dynamicStrategyToggle" class="toggle-checkbox">
+                            <div class="toggle-switch"><div class="toggle-knob"></div></div>
+                        </label>
+                        <label class="toggle-label">
+                            <span class="font-medium text-gray-700">Adaptive Play Signals</span>
+                            <input type="checkbox" id="adaptivePlayToggle" class="toggle-checkbox">
+                            <div class="toggle-switch"><div class="toggle-knob"></div></div>
+                        </label>
+                        <label class="toggle-label">
+                            <span class="font-medium text-gray-700">Table Change Warnings</span>
+                            <input type="checkbox" id="tableChangeWarningsToggle" class="toggle-checkbox">
+                            <div class="toggle-switch"><div class="toggle-knob"></div></div>
+                        </label>
+                        <label class="toggle-label">
+                            <span class="font-medium text-gray-700">Due for a Hit (Contrarian)</span>
+                            <input type="checkbox" id="dueForHitToggle" class="toggle-checkbox">
+                            <div class="toggle-switch"><div class="toggle-knob"></div></div>
+                        </label>
+                        <label class="toggle-label">
+                            <span class="font-medium text-gray-700">Neighbour Focus</span>
+                            <input type="checkbox" id="neighbourFocusToggle" class="toggle-checkbox">
+                            <div class="toggle-switch"><div class="toggle-knob"></div></div>
+                        </label>
+                        <label class="toggle-label">
+                            <span class="font-medium text-gray-700">Less Strict Mode</span>
+                            <input type="checkbox" id="lessStrictModeToggle" class="toggle-checkbox">
+                            <div class="toggle-switch"><div class="toggle-knob"></div></div>
+                        </label>
+                        <label class="toggle-label">
+                            <span class="font-medium text-gray-700">Dynamic Terminal Neighbour Count</span>
+                            <input type="checkbox" id="dynamicTerminalNeighbourCountToggle" class="toggle-checkbox">
+                            <div class="toggle-switch"><div class="toggle-knob"></div></div>
+                        </label>
+                    </div>
+                </div>
+            <div class="card p-8 space-y-4">
+                <h2 class="text-xl font-bold text-gray-700">Board State Analysis</h2>
+                <div id="boardStateAnalysis" class="space-y-2"></div>
+                <p id="boardStateConclusion" class="text-center font-bold pt-2"></p>
+            </div>
+            <div class="card p-8 space-y-4">
+                <h2 class="text-xl font-bold text-gray-700">Dynamic Strategy Weights</h2>
+                <div id="strategyWeightsDisplay" class="space-y-3">
+                    </div>
+            </div>
+            <div class="card p-8 space-y-4">
+                <h2 class="text-xl font-bold text-gray-700">Neighbour Analysis</h2>
+                <p class="text-sm text-gray-500">Analysis of neighboring numbers based on successes.</p>
+                <ul id="analysisList" class="analysis-list space-y-1"></ul>
+            </div>
+        </aside>
+    </div>
+
+    <script>
+        // IMPORTANT: This key is exposed and should not be used in production without securing it.
+        const GOOGLE_API_KEY = "YOUR_API_KEY_HERE";
+
+        const DEBUG_MODE = true; // Set to 'true' for debugging, 'false' for production.
+
+        const STRATEGY_CONFIG = {
+            learningRate_success: 0.07,
+            learningRate_failure: 0.03,
+            maxWeight: 3.15,
+            minWeight: 0.05,
+            decayFactor: 0.99,
+            patternMinAttempts: 3,
+            patternSuccessThreshold: 72,
+            triggerMinAttempts: 2,
+            triggerSuccessThreshold: 68,
+            // DETRIMENTAL_FAILURE_STREAK and DETRIMENTAL_PENALTY_MULTIPLIER are removed
+            // as their logic is now superseded by the adaptiveFactorInfluences system.
+        };
+
+        // NEW: Adaptive Learning Rates for Factor Influences
+        const ADAPTIVE_LEARNING_RATE_SUCCESS = 0.08; // How much to increase influence on success
+        const ADAPTIVE_LEARNING_RATE_FAILURE = 0.12; // How much to decrease influence on failure
+        const MIN_ADAPTIVE_INFLUENCE = 0.15; // Minimum influence a factor can have (e.g., 0.2x original impact)
+        const MAX_ADAPTIVE_INFLUENCE = 3.50; // Maximum influence a factor can have (e.g., 2.5x original impact)
+
+        // NEW: Adaptive thresholds for play signals (Phase 4: AI-Driven Confidence Thresholds)
+        const INITIAL_PLAY_THRESHOLD = 10; // Starting point for 'Play' signal score
+        const INITIAL_STRONG_PLAY_THRESHOLD = 25; // Starting point for 'Strong Play' signal score
+        const ADAPTIVE_THRESHOLD_LEARNING_RATE = 0.01; // How quickly thresholds adapt
+        const MIN_CONFIDENCE_THRESHOLD = 5.0; // Minimum score threshold can drop to
+        const MAX_CONFIDENCE_THRESHOLD = 40.0; // Maximum score threshold can rise to
+
+
+        // TensorFlow.js specific configurations (constants for main thread's use)
+        const TRAINING_MIN_HISTORY = 10; // Minimum history items needed to train the model
+
+        // Web Worker instance - this will handle all TF.js operations
+        let aiWorker;
+
+        function toggleGuide(contentId) {
+            const content = document.getElementById(contentId);
+            if (content) {
+                content.classList.toggle('open');
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            try {
+                let history = [];
+                let confirmedWinsLog = [];
+                // --- UPDATED TOGGLE CONFIGURATION (from previous optimization) ---
+                let useTrendConfirmation = false;
+                let useWeightedZone = true;
+                let useProximityBoost = true;
+                let usePocketDistance = false; 
+                let useLowestPocketDistance = true; 
+                let useAdvancedCalculations = true; 
+                let useNeighbourFocus = true; 
+                let useDueForHit = false; 
+                let useLessStrict = false; 
+                let useDynamicStrategy = true; 
+                let useAdaptivePlay = true; 
+                let useTableChangeWarnings = true; 
+                let useDynamicTerminalNeighbourCount = true; 
+                // --- END UPDATED TOGGLE CONFIGURATION ---
+                
+                let isAiReady = false; // Status of local TF.js model
+
+                let strategyStates = {
+                    weightedZone: { weight: 1.0, name: 'Neighbour Weighting' },
+                    proximityBoost: { weight: 1.0, name: 'Proximity Boost' }
+                };
+
+                let patternMemory = {};
+                // Adaptive influence scores for various factors, client-side managed
+                let adaptiveFactorInfluences = {
+                    'High AI Confidence': 1.0, 
+                    'AI-Driven Proximity': 1.0, 
+                    'Pattern Detection': 1.0, 
+                    'Proximity to Last Spin': 1.0, 
+                    'Hot Zone Weighting': 1.0, 
+                    'Strong Historical Performance': 1.0, 
+                    'Good Historical Hit Rate': 1.0, 
+                    'Consistent Trend': 1.0, 
+                    'Statistical Trends': 1.0 
+                };
+
+                // NEW: Track individual model performance for dynamic weighting (Phase 4: Dynamic Ensemble Weighting)
+                let aiModelPerformance = {
+                    'Specialist': { hits: 0, total: 0, recentAccuracy: 0.5 }, // Start neutral
+                    'Generalist': { hits: 0, total: 0, recentAccuracy: 0.5 }
+                };
+                const RECENT_PERFORMANCE_WINDOW = 20; // Number of recent spins to consider for model accuracy
+
+                // NEW: AI-Driven Confidence Thresholds (Phase 4: AI-Driven Confidence Thresholds)
+                let aiConfidenceThresholds = {
+                    play: INITIAL_PLAY_THRESHOLD,
+                    strongPlay: INITIAL_STRONG_PLAY_THRESHOLD
+                };
+
+                let currentVideoURL = null;
+
+                // These core data structures are passed to the worker for AI calculations
+                const terminalMapping = {
+                    0: [4, 6], 1: [8], 2: [7, 9], 3: [8], 4: [11], 5: [12, 10], 6: [11], 7: [14, 2],
+                    8: [15, 13, 3, 1], 9: [14, 2], 10: [17, 5], 11: [18, 16, 6, 4], 12: [17, 5],
+                    13: [20, 23], 14: [9, 21, 7, 19], 15: [8, 20], 16: [11], 17: [12, 24, 10, 22],
+                    18: [11, 23], 19: [14, 26], 20: [13, 25, 15, 27], 21: [14, 26], 22: [17, 29],
+                    23: [18, 30, 16, 28], 24: [17, 29], 25: [20, 32], 26: [19, 31, 33, 21],
+                    27: [20, 32], 28: [23, 35], 29: [22, 34, 24, 36], 30: [23, 35], 31: [26],
+                    32: [25, 27], 33: [26], 34: [29], 35: [28, 30], 36: [29]
+                };
+                const rouletteWheel = [0, 26, 3, 35, 12, 28, 7, 29, 18, 22, 9, 31, 14, 20, 1, 33, 16, 24, 5, 10, 23, 8, 30, 11, 36, 13, 27, 6, 34, 17, 25, 2, 21, 4, 19, 15, 32];
+                
+                // allPredictionTypes now has functions, so we need to create a clonable version for the worker
+                const allPredictionTypes = [
+                    { id: 'diffMinus', label: 'Minus', displayLabel: 'Minus Group', colorClass: 'bg-amber-500', textColor: '#d97706', calculateBase: (n1, n2) => Math.abs(n2 - n1) - 1 },
+                    { id: 'diffResult', label: 'Result', displayLabel: 'Result Group', colorClass: 'bg-blue-500', textColor: '#2563eb', calculateBase: (n1, n2) => Math.abs(n2 - n1) },
+                    { id: 'diffPlus', label: 'Plus', displayLabel: 'Plus Group', colorClass: 'bg-red-500', textColor: '#dc2626', calculateBase: (n1, n2) => Math.abs(n2 - n1) + 1 },
+                    { id: 'sumMinus', label: 'Sum (-1)', displayLabel: '+ and -1', colorClass: 'bg-sumMinus', textColor: '#8b5cf6', calculateBase: (n1, n2) => (n1 + n2) - 1 },
+                    { id: 'sumResult', label: 'Sum Result', displayLabel: '+', colorClass: 'bg-sumResult', textColor: '#10b981', calculateBase: (n1, n2) => (n1 + n2) },
+                    { id: 'sumPlus', label: 'Sum (+1)', displayLabel: '+ and +1', colorClass: 'bg-sumPlus', textColor: '#f43f5e', calculateBase: (n1, n2) => (n1 + n2) + 1 }
+                ];
+
+                // Create a version of allPredictionTypes without functions for the worker
+                const clonablePredictionTypes = allPredictionTypes.map(type => ({
+                    id: type.id,
+                    label: type.label,
+                    displayLabel: type.displayLabel,
+                    colorClass: type.colorClass,
+                    textColor: type.textColor
+                    // calculateBase is intentionally omitted
+                }));
+
+                let activePredictionTypes = []; // This will be set based on useAdvancedCalculations
+
+                const dom = {
+                    number1: document.getElementById('number1'),
+                    number2: document.getElementById('number2'),
+                    resultDisplay: document.getElementById('resultDisplay'),
+                    historyList: document.getElementById('historyList'),
+                    analysisList: document.getElementById('analysisList'),
+                    boardStateAnalysis: document.getElementById('boardStateAnalysis'),
+                    boardStateConclusion: document.getElementById('boardStateConclusion'),
+                    historicalNumbersInput: document.getElementById('historicalNumbersInput'),
+                    imageUpload: document.getElementById('imageUpload'),
+                    imageUploadLabel: document.getElementById('imageUploadLabel'),
+                    analyzeHistoricalDataButton: document.getElementById('analyzeHistoricalDataButton'),
+                    historicalAnalysisMessage: document.getElementById('historicalAnalysisMessage'),
+                    aiModelStatus: document.getElementById('aiModelStatus'),
+                    recalculateAnalysisButton: document.getElementById('recalculateAnalysisButton'),
+                    trendConfirmationToggle: document.getElementById('trendConfirmationToggle'),
+                    weightedZoneToggle: document.getElementById('weightedZoneToggle'),
+                    proximityBoostToggle: document.getElementById('proximityBoostToggle'),
+                    pocketDistanceToggle: document.getElementById('pocketDistanceToggle'),
+                    lowestPocketDistanceToggle: document.getElementById('lowestPocketDistanceToggle'),
+                    advancedCalculationsToggle: document.getElementById('advancedCalculationsToggle'),
+                    dynamicStrategyToggle: document.getElementById('dynamicStrategyToggle'),
+                    adaptivePlayToggle: document.getElementById('adaptivePlayToggle'),
+                    tableChangeWarningsToggle: document.getElementById('tableChangeWarningsToggle'),
+                    dueForHitToggle: document.getElementById('dueForHitToggle'),
+                    neighbourFocusToggle: document.getElementById('neighbourFocusToggle'),
+                    lessStrictModeToggle: document.getElementById('lessStrictModeToggle'),
+                    dynamicTerminalNeighbourCountToggle: document.getElementById('dynamicTerminalNeighbourCountToggle'),
+                    videoUpload: document.getElementById('videoUpload'),
+                    videoUploadLabel: document.getElementById('videoUploadLabel'),
+                    videoStatus: document.getElementById('videoStatus'),
+                    videoPlayer: document.getElementById('videoPlayer'),
+                    frameCanvas: document.getElementById('frameCanvas'),
+                    setHighestWinRatePreset: document.getElementById('setHighestWinRatePreset'),
+                    setBalancedSafePreset: document.getElementById('setBalancedSafePreset'),
+                    setAggressiveSignalsPreset: document.getElementById('setAggressiveSignalsPreset'),
+                    rouletteWheelContainer: document.getElementById('rouletteWheelContainer'),
+                    rouletteLegend: document.getElementById('rouletteLegend'),
+                    strategyWeightsDisplay: document.getElementById('strategyWeightsDisplay'),
+                    videoUploadContainer: document.getElementById('videoUploadContainer'),
+                    videoControlsContainer: document.getElementById('videoControlsContainer'),
+                    analyzeVideoButton: document.getElementById('analyzeVideoButton'),
+                    clearVideoButton: document.getElementById('clearVideoButton'),
+                    historyInfoToggle: document.getElementById('historyInfoToggle'),
+                    historyInfoDropdown: document.getElementById('historyInfoDropdown'),
+                    winCount: document.getElementById('winCount'), 
+                    lossCount: document.getElementById('lossCount') 
+                };
+
+                if (DEBUG_MODE) {
+                    console.log('DOM elements initialized:', Object.keys(dom).filter(key => dom[key] !== null));
+                }
+
+                function saveState() {
+                    localStorage.setItem('terminalCalculatorState', JSON.stringify({
+                        history, confirmedWinsLog,
+                        useTrendConfirmation, useWeightedZone, useProximityBoost, usePocketDistance, useLowestPocketDistance, useAdvancedCalculations,
+                        useNeighbourFocus, useDueForHit, useLessStrict,
+                        useDynamicStrategy, useAdaptivePlay, useTableChangeWarnings,
+                        useDynamicTerminalNeighbourCount,
+                        strategyStates,
+                        patternMemory,
+                        adaptiveFactorInfluences, // Save adaptive influences
+                        aiModelPerformance,       // Save AI model performance for dynamic weighting
+                        aiConfidenceThresholds    // Save AI-driven confidence thresholds
+                    }));
+                }
+
+                function loadState() {
+                    const savedState = localStorage.getItem('terminalCalculatorState');
+                    if (savedState) {
+                        const appState = JSON.parse(savedState);
+                        history = (appState.history || []).map(item => ({
+                            ...item,
+                            recommendedGroupId: item.recommendedGroupId || null,
+                            recommendedGroupPocketDistance: item.recommendedGroupPocketDistance ?? null,
+                            recommendationDetails: item.recommendationDetails || null
+                        }));
+                        confirmedWinsLog = appState.confirmedWinsLog || [];
+                        useTrendConfirmation = appState.useTrendConfirmation || false;
+                        useWeightedZone = appState.useWeightedZone ?? true;
+                        useProximityBoost = appState.useProximityBoost ?? true;
+                        usePocketDistance = appState.usePocketDistance || false;
+                        useLowestPocketDistance = appState.lowestPocketDistance || false;
+                        useAdvancedCalculations = appState.useAdvancedCalculations || false;
+                        useNeighbourFocus = appState.useNeighbourFocus || false;
+                        useDueForHit = appState.useDueForHit || false;
+                        useLessStrict = appState.useLessStrict || false;
+                        useDynamicStrategy = appState.useDynamicStrategy || false;
+                        useAdaptivePlay = appState.useAdaptivePlay || false;
+                        useTableChangeWarnings = appState.useTableChangeWarnings || false;
+                        useDynamicTerminalNeighbourCount = appState.useDynamicTerminalNeighbourCount || false;
+                        
+                        if (appState.strategyStates) {
+                            strategyStates = appState.strategyStates;
+                        }
+                        if (appState.patternMemory) {
+                            patternMemory = appState.patternMemory;
+                        }
+                        // Load adaptive influences, ensuring all expected factors are initialized
+                        if (appState.adaptiveFactorInfluences) {
+                            for (const factor in adaptiveFactorInfluences) { 
+                                if (appState.adaptiveFactorInfluences[factor] !== undefined) {
+                                    adaptiveFactorInfluences[factor] = appState.adaptiveFactorInfluences[factor];
+                                }
+                            }
+                        }
+                        // Load AI model performance for dynamic weighting
+                        if (appState.aiModelPerformance) {
+                            aiModelPerformance = appState.aiModelPerformance;
+                        }
+                        // Load AI-driven confidence thresholds
+                        if (appState.aiConfidenceThresholds) {
+                            aiConfidenceThresholds = appState.aiConfidenceThresholds;
+                        }
+
+                        updateAllTogglesUI();
+                        updateActivePredictionTypes();
+                    }
+                }
+                
+                function updateAllTogglesUI() {
+                    dom.trendConfirmationToggle.checked = useTrendConfirmation;
+                    dom.weightedZoneToggle.checked = useWeightedZone;
+                    dom.proximityBoostToggle.checked = useProximityBoost;
+                    dom.pocketDistanceToggle.checked = usePocketDistance;
+                    dom.lowestPocketDistanceToggle.checked = useLowestPocketDistance;
+                    dom.advancedCalculationsToggle.checked = useAdvancedCalculations;
+                    dom.dynamicStrategyToggle.checked = useDynamicStrategy;
+                    dom.adaptivePlayToggle.checked = useAdaptivePlay;
+                    dom.tableChangeWarningsToggle.checked = useTableChangeWarnings;
+                    dom.dueForHitToggle.checked = useDueForHit;
+                    dom.neighbourFocusToggle.checked = useNeighbourFocus;
+                    dom.lessStrictModeToggle.checked = useLessStrict;
+                    dom.dynamicTerminalNeighbourCountToggle.checked = useDynamicTerminalNeighbourCount;
+                }
+
+                function updateActivePredictionTypes() {
+                    if (useAdvancedCalculations) {
+                        activePredictionTypes = allPredictionTypes;
+                    } else {
+                        activePredictionTypes = allPredictionTypes.filter(type =>
+                            type.id === 'diffMinus' || type.id === 'diffResult' || type.id === 'diffPlus'
+                        );
+                    }
+                    updateRouletteLegend();
+                    if (aiWorker) {
+                        if (DEBUG_MODE) {
+                            console.log('Main: Sending update_config to worker with clonable types and current context.');
+                        }
+                        aiWorker.postMessage({ 
+                            type: 'update_config', 
+                            payload: { 
+                                allPredictionTypes: clonablePredictionTypes, 
+                                terminalMapping: terminalMapping,
+                                rouletteWheel: rouletteWheel,
+                                history: history,
+                                currentNum1: parseInt(dom.number1.value, 10),
+                                currentNum2: parseInt(dom.number2.value, 10),
+                                currentDifference: Math.abs(parseInt(dom.number2.value, 10) - parseInt(dom.number1.value, 10)),
+                                lastWinningNumber: confirmedWinsLog.length > 0 ? confirmedWinsLog[confirmedWinsLog.length -1] : null,
+                            } 
+                        });
+                    }
+                }
+
+                function updateRouletteLegend() {
+                    dom.rouletteLegend.innerHTML = `
+                        <div class="roulette-legend-item"><div class="roulette-legend-color bg-roulette-green"></div> Green (0)</div>
+                        <div class="roulette-legend-item"><div class="roulette-legend-color bg-roulette-red"></div> Red Numbers</div>
+                        <div class="roulette-legend-item"><div class="roulette-legend-color bg-roulette-black"></div> Black Numbers</div>
+                    `;
+                    activePredictionTypes.forEach(type => {
+                        dom.rouletteLegend.innerHTML += `
+                            <div class="roulette-legend-item"><div class="roulette-legend-color `+type.colorClass+`"></div> `+type.displayLabel+`</div>
+                        `;
+                    });
+                    dom.rouletteLegend.innerHTML += `
+                        <div class="roulette-legend-item"><div class="roulette-legend-color bg-highlight-winning"></div> Winning Number</div>
+                    `;
+                }
+
+                function handlePresetSelection(preset) {
+                    // --- OPTIMIZED 'Highest Win Rate' PRESET (updated from previous optimization) ---
+                    if (preset === 'highestWinRate') {
+                        useTrendConfirmation = false;
+                        useWeightedZone = true;
+                        useProximityBoost = true;
+                        usePocketDistance = false; 
+                        useLowestPocketDistance = true;
+                        useAdvancedCalculations = true;
+                        useDynamicStrategy = true;
+                        useAdaptivePlay = true;
+                        useTableChangeWarnings = true;
+                        useDueForHit = false;
+                        useNeighbourFocus = true;
+                        useLessStrict = false;
+                        useDynamicTerminalNeighbourCount = true;
+                    } else if (preset === 'balancedSafe') {
+                        useTrendConfirmation = true;
+                        useWeightedZone = true;
+                        useProximityBoost = true;
+                        usePocketDistance = false;
+                        useLowestPocketDistance = false;
+                        useAdvancedCalculations = false;
+                        useDynamicStrategy = false;
+                        useAdaptivePlay = false;
+                        useTableChangeWarnings = false;
+                        useDueForHit = false;
+                        useNeighbourFocus = false;
+                        useLessStrict = false;
+                        useDynamicTerminalNeighbourCount = false;
+                    } else if (preset === 'aggressiveSignals') {
+                        useTrendConfirmation = true;
+                        useWeightedZone = true;
+                        useProximityBoost = true;
+                        usePocketDistance = false;
+                        useLowestPocketDistance = false;
+                        useAdvancedCalculations = false;
+                        useDynamicStrategy = false;
+                        useAdaptivePlay = false;
+                        useTableChangeWarnings = false;
+                        useDueForHit = false;
+                        useNeighbourFocus = false;
+                        useLessStrict = true;
+                        useDynamicTerminalNeighbourCount = false;
+                    }
+                    updateAllTogglesUI();
+                    updateActivePredictionTypes();
+                    saveState();
+                }
+
+                function getNeighbours(number, count) {
+                    const index = rouletteWheel.indexOf(number);
+                    if (index === -1) return [];
+                    const neighbours = new Set();
+                    const wheelSize = rouletteWheel.length;
+                    for (let i = 1; i <= count; i++) {
+                        neighbours.add(rouletteWheel[(index - i + wheelSize) % wheelSize]);
+                        neighbours.add(rouletteWheel[(index + i) % wheelSize]);
+                    }
+                    return Array.from(neighbours);
+                }
+                
+                function getHitZone(baseNumber, terminals, winningNumber = null) {
+                    if (baseNumber < 0 || baseNumber > 36) return [];
+                    const hitZone = new Set([baseNumber]);
+                    const numTerminals = terminals ? terminals.length : 0;
+
+                    let baseNeighbourCount = (numTerminals === 1) ? 3 : (numTerminals >= 2) ? 1 : 0;
+                    if (baseNeighbourCount > 0) getNeighbours(baseNumber, baseNeighbourCount).forEach(n => hitZone.add(n));
+
+                    let terminalNeighbourCount;
+                    if (useDynamicTerminalNeighbourCount && winningNumber !== null) {
+                        if (baseNumber === winningNumber || (terminals && terminals.includes(winningNumber))) {
+                            terminalNeighbourCount = 0;
+                        } else {
+                            terminalNeighbourCount = (numTerminals === 1 || numTerminals === 2) ? 3 : (numTerminals > 2) ? 1 : 0;
+                        }
+                    } else {
+                        terminalNeighbourCount = (numTerminals === 1 || numTerminals === 2) ? 3 : (numTerminals > 2) ? 1 : 0;
+                    }
+
+                    if (terminals && terminals.length > 0) {
+                        terminals.forEach(t => {
+                            hitZone.add(t);
+                            if (terminalNeighbourCount > 0) getNeighbours(t, terminalNeighbourCount).forEach(n => hitZone.add(n));
+                        });
+                    }
+                    return Array.from(hitZone);
+                }
+
+                function getRouletteNumberColor(number) {
+                    if (number === 0) return 'green';
+                    const redNumbers = [1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36];
+                    if (redNumbers.includes(number)) return 'red';
+                    return 'black';
+                }
+
+                function drawRouletteWheel(currentDiff = null, lastWinningNumber = null) {
+                    dom.rouletteWheelContainer.innerHTML = '';
+                    const svgWidth = dom.rouletteWheelContainer.clientWidth || 300;
+                    const svgHeight = svgWidth;
+                    const radius = (svgWidth / 2) * 0.8;
+                    const centerX = svgWidth / 2;
+                    const centerY = svgHeight / 2;
+                    const numberRadius = 15;
+
+                    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+                    svg.setAttribute("id", "rouletteWheel");
+                    svg.setAttribute("width", svgWidth);
+                    svg.setAttribute("height", svgHeight);
+                    svg.setAttribute("viewBox", `0 0 ${svgWidth} ${svgHeight}`);
+
+                    const outerCircle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+                    outerCircle.setAttribute("cx", centerX);
+                    outerCircle.setAttribute("cy", centerY);
+                    outerCircle.setAttribute("r", radius + numberRadius + 5);
+                    outerCircle.setAttribute("fill", "none");
+                    outerCircle.setAttribute("stroke", "#e2e8f0");
+                    outerCircle.setAttribute("stroke-width", "2");
+                    svg.appendChild(outerCircle);
+
+                    const highlightedNumbers = new Set();
+                    const hitZoneClasses = {};
+
+                    if (currentDiff !== null && !isNaN(currentDiff)) {
+                        const num1 = parseInt(dom.number1.value, 10);
+                        const num2 = parseInt(dom.number2.value, 10);
+
+                        activePredictionTypes.forEach(type => {
+                            const baseNum = type.calculateBase(num1, num2);
+                            if (baseNum < 0 || baseNum > 36) return;
+                            
+                            const terminals = terminalMapping?.[baseNum] || [];
+                            const hitZone = getHitZone(baseNum, terminals, lastWinningNumber);
+                            hitZone.forEach(num => {
+                                highlightedNumbers.add(num);
+                                if (!hitZoneClasses[num]) {
+                                    hitZoneClasses[num] = `highlight-`+type.id;
+                                }
+                            });
+                        });
+                    }
+
+                    rouletteWheel.forEach((number, index) => {
+                        const angle = (index / rouletteWheel.length) * 2 * Math.PI - (Math.PI / 2);
+                        const x = centerX + radius * Math.cos(angle);
+                        const y = centerY + radius * Math.sin(angle);
+
+                        const numberColor = getRouletteNumberColor(number);
+                        let strokeClass = '';
+
+                        if (lastWinningNumber !== null && number === lastWinningNumber) {
+                            strokeClass = 'highlight-winning';
+                        } else if (highlightedNumbers.has(number)) {
+                            strokeClass = hitZoneClasses[number];
+                        }
+
+                        const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+                        circle.setAttribute("cx", x);
+                        circle.setAttribute("cy", y);
+                        circle.setAttribute("r", numberRadius);
+                        circle.setAttribute("class", `wheel-number-circle `+numberColor+` `+strokeClass);
+                        svg.appendChild(circle);
+
+                        const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+                        text.setAttribute("x", x);
+                        text.setAttribute("y", y + 3);
+                        text.setAttribute("text-anchor", "middle");
+                        text.setAttribute("class", "wheel-number-text");
+                        text.textContent = number;
+                        svg.appendChild(text);
+                    });
+
+                    dom.rouletteWheelContainer.appendChild(svg);
+                }
+
+                function calculatePocketDistance(num1, num2) {
+                    const index1 = rouletteWheel.indexOf(num1);
+                    const index2 = rouletteWheel.indexOf(num2);
+
+                    if (index1 === -1 || index2 === -1) {
+                        return Infinity;
+                    }
+
+                    const directDistance = Math.abs(index1 - index2);
+                    const wrapAroundDistance = rouletteWheel.length - directDistance;
+
+                    return Math.min(directDistance, wrapAroundDistance);
+                }
+                
+                function updateWinLossCounter() {
+                    let wins = 0;
+                    let losses = 0;
+
+                    history.forEach(item => {
+                        if (item.recommendedGroupId) {
+                            if (item.hitTypes && item.hitTypes.includes(item.recommendedGroupId)) {
+                                wins++;
+                            } else {
+                                if (item.winningNumber !== null) {
+                                    losses++;
+                                }
+                            }
+                        }
+                    });
+
+                    dom.winCount.textContent = wins;
+                    dom.lossCount.textContent = losses;
+                }
+
+                function renderHistory() {
+                    updateWinLossCounter(); 
+
+                    dom.historyList.innerHTML = `<li class="text-center text-gray-500 py-4">No calculations yet.</li>`;
+                    if (history.length === 0) return;
+                    dom.historyList.innerHTML = '';
+                    history.slice().sort((a, b) => b.id - a.id).forEach(item => {
+                        if (DEBUG_MODE) {
+                            console.log("DEBUG renderHistory: Processing item:", item);
+                        }
+
+                        const li = document.createElement('li');
+                        li.className = 'history-item relative';
+                        if (item.status === 'success') li.classList.add('is-success');
+                        if (item.status === 'fail') li.classList.add('is-fail');
+                        
+                        let stateBadgeContent;
+                        let stateBadgeClass = 'bg-gray-400';
+
+                        if (item.status === 'pending') {
+                            stateBadgeContent = 'Pending';
+                            stateBadgeClass = 'bg-gray-400';
+                        } else if (item.recommendedGroupId) {
+                            const recommendedType = allPredictionTypes.find(type => type.id === item.recommendedGroupId);
+                            const recommendedLabel = recommendedType?.displayLabel || item.recommendedGroupId;
+                            const recommendedColorClass = recommendedType?.colorClass || 'bg-gray-400';
+
+                            const recommendedHit = item.hitTypes.includes(item.recommendedGroupId);
+                            const otherGroupsHit = item.hitTypes.length > 0 && !recommendedHit;
+
+                            if (recommendedHit) {
+                                stateBadgeContent = `Reco: `+recommendedLabel+` (Hit)`;
+                                stateBadgeClass = recommendedColorClass;
+                            } else if (otherGroupsHit) {
+                                const otherHitLabels = item.hitTypes
+                                    .filter(id => id !== item.recommendedGroupId)
+                                    .map(id => allPredictionTypes.find(type => type.id === id)?.displayLabel || id);
+                                stateBadgeContent = `Reco: `+recommendedLabel+` (Missed), Hit: `+otherHitLabels.join(' & ');
+                                stateBadgeClass = 'bg-red-500';
+                            } else {
+                                stateBadgeContent = `Reco: `+recommendedLabel+` (Missed)`;
+                                stateBadgeClass = recommendedColorClass;
+                            }
+                        } else {
+                            if (item.status === 'success') {
+                                if (item.confirmedStreak >= 2) {
+                                    stateBadgeContent = `Confirmed by `+item.confirmedStreak;
+                                    const primaryHitType = item.hitTypes.length > 0 ? allPredictionTypes.find(type => type.id === item.hitTypes[0]) : null;
+                                    stateBadgeClass = primaryHitType ? primaryHitType.colorClass : 'bg-green-600';
+                                } else if (item.hitTypes && item.hitTypes.length > 0) {
+                                    stateBadgeContent = item.hitTypes.map(id => allPredictionTypes.find(type => type.id === id)?.displayLabel || id).join(', ');
+                                    stateBadgeClass = allPredictionTypes.find(type => type.id === item.hitTypes[0])?.colorClass || 'bg-green-600';
+                                } else {
+                                    stateBadgeContent = 'Success';
+                                    stateBadgeClass = 'bg-green-600';
+                                }
+                            } else {
+                                stateBadgeContent = 'Failed';
+                                stateBadgeClass = 'bg-red-500';
+                            }
+                        }
+
+                        let pocketDistanceDisplay = '';
+                        if (usePocketDistance && item.status === 'success' && item.pocketDistance !== undefined && item.pocketDistance !== null) {
+                            pocketDistanceDisplay = ` (<span class="text-pink-400">Dist: `+item.pocketDistance+`</span>)`;
+                        }
+
+                        const recommendedHit = item.recommendedGroupId && item.hitTypes.includes(item.recommendedGroupId);
+                        const showFailIcon = (item.recommendedGroupId && !recommendedHit) || item.status === 'fail';
+                        const showSuccessIcon = item.status === 'success' && recommendedHit;
+
+                        let aiDetailsHtml = '';
+                        const showAiDetailsToggle = item.recommendedGroupId; 
+                        if (showAiDetailsToggle && item.recommendationDetails) {
+                            const details = item.recommendationDetails;
+                            aiDetailsHtml = `
+                                    <div class="ai-details-toggle" data-target="ai-details-`+item.id+`">Show Details</div>
+                                    <div id="ai-details-`+item.id+`" class="ai-details-section">
+                                            <ul>
+                                                    `+(details.primaryDrivingFactor ? `<li><strong>Reason: `+details.primaryDrivingFactor+`</strong> (Influence: `+(details.adaptiveInfluenceUsed?.toFixed(2) || '1.00')+`)</li>` : '')+`
+                                                    <li>Base Score: `+details.baseScore.toFixed(2)+`</li>
+                                                    `+(details.confluenceBonus ? `<li>Confluence Bonus: `+details.confluenceBonus.toFixed(2)+`x</li>` : '')+`
+                                                    <li>Hit Rate: `+details.hitRate.toFixed(2)+`%</li>
+                                                    <li>Avg Trend: `+details.avgTrend.toFixed(1)+`</li>
+                                                    <li>Proximity: `+(details.predictiveDistance !== Infinity ? details.predictiveDistance : 'N/A')+` (Boost: `+(details.proximityBoostApplied ? 'Yes' : 'No')+`)</li>
+                                                    <li>Neighbour Weighting: `+(details.weightedZoneBoostApplied ? 'Yes' : 'No')+`</li>
+                                                    <li>Pattern Boost: `+(details.patternBoostApplied ? `Yes (`+details.patternBoostMultiplier.toFixed(2)+`x)` : 'No')+`</li>
+                                                    <li>AI Probability: `+(details.mlProbability !== null ? (details.mlProbability * 100).toFixed(1) + `%` : 'N/A')+` (Boost: `+(details.mlBoostApplied ? 'Yes' : 'No')+`)</li>
+                                                    <li>AI Low Pocket Boost: `+(details.aiLowPocketBoostApplied ? 'Yes' : 'No')+`</li>
+                                                    <li>Final Score: `+details.finalScore.toFixed(2)+`</li>
+                                            </ul>
+                                    </div>
+                                    `;
+                        }
+
+
+                        li.innerHTML = `
+                                `+(stateBadgeContent ? `<div class="state-badge `+stateBadgeClass+`">`+stateBadgeContent+`</div>` : '')+`
+                                <p>`+item.num2+` - `+item.num1+` = <strong class="text-lg">`+item.difference+`</strong>`+pocketDistanceDisplay+`</p>
+                                <div class="flex items-center space-x-2">
+                                    <div class="status-box fail-box" style="display:`+(showFailIcon ? 'flex' : 'none')+`;"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg></div>
+                                    <div class="status-box success-box" style="display:`+(showSuccessIcon ? 'flex' : 'none')+`;"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" /></svg></div>
+                                    <button class="delete-btn" data-id="`+item.id+`" aria-label="Delete item"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m-1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>
+                                </div>
+                                `+aiDetailsHtml+`
+                                `;
+                        dom.historyList.appendChild(li);
+                    });
+
+                    document.querySelectorAll('.ai-details-toggle').forEach(toggle => {
+                        toggle.onclick = (e) => {
+                            const targetId = toggle.dataset.target;
+                            const targetElement = document.getElementById(targetId);
+                            if (targetElement) {
+                                targetElement.classList.toggle('open');
+                                toggle.textContent = targetElement.classList.contains('open') ? 'Hide Details' : 'Show Details';
+                            }
+                        };
+                    });
+                }
+
+                function renderStrategyWeights() {
+                    if (DEBUG_MODE) {
+                        console.log('Rendering strategy weights...');
+                    }
+                    if (!dom.strategyWeightsDisplay) return;
+                    dom.strategyWeightsDisplay.innerHTML = '';
+
+                    for (const key in strategyStates) {
+                        const strategy = strategyStates[key];
+                        const weightPercentage = ((strategy.weight - STRATEGY_CONFIG.minWeight) / (STRATEGY_CONFIG.maxWeight - STRATEGY_CONFIG.minWeight)) * 100;
+
+                        const weightColor = strategy.weight > 1.0 ? 'bg-green-500' : strategy.weight < 1.0 ? 'bg-red-500' : 'bg-blue-500';
+
+                        dom.strategyWeightsDisplay.innerHTML += `
+                                <div>
+                                    <div class="flex justify-between items-center mb-1">
+                                        <span class="font-medium text-sm text-gray-700">`+strategy.name+`</span>
+                                        <span class="font-semibold text-sm text-gray-600">`+strategy.weight.toFixed(2)+`x</span>
+                                    </div>
+                                    <div class="w-full bg-gray-200 rounded-full h-2.5">
+                                        <div class="`+weightColor+` h-2.5 rounded-full transition-all duration-300" style="width: `+Math.max(0, Math.min(100, weightPercentage))+`%"></div>
+                                    </div>
+                                </div>
+                                `;
+                    }
+                }
+
+                function updateStrategyWeights(lastCalcItem) {
+                    if (DEBUG_MODE) {
+                        console.log('Updating strategy weights...');
+                    }
+                    if (!lastCalcItem || lastCalcItem.status === 'pending') return;
+
+                    const recommendation = getRecommendation(calculateTrendStats(), getBoardStateStats(), runNeighbourAnalysis(false), lastCalcItem.difference, true, null, adaptiveFactorInfluences, aiConfidenceThresholds); // Pass adaptive influences and thresholds
+                    const recommendedType = recommendation.bestCandidate?.type.id;
+                    
+                    if (!recommendedType) return;
+
+                    const wasSuccess = lastCalcItem.hitTypes.includes(recommendedType);
+
+                    if (useWeightedZone) {
+                        if (wasSuccess) {
+                            strategyStates.weightedZone.weight = Math.min(STRATEGY_CONFIG.maxWeight, strategyStates.weightedZone.weight + STRATEGY_CONFIG.learningRate_success);
+                        } else {
+                            strategyStates.weightedZone.weight = Math.max(STRATEGY_CONFIG.minWeight, strategyStates.weightedZone.weight - STRATEGY_CONFIG.learningRate_failure);
+                        }
+                    }
+
+                    if (useProximityBoost) {
+                        if (wasSuccess) {
+                            strategyStates.proximityBoost.weight = Math.min(STRATEGY_CONFIG.maxWeight, strategyStates.proximityBoost.weight + STRATEGY_CONFIG.learningRate_success);
+                        } else {
+                            strategyStates.proximityBoost.weight = Math.max(STRATEGY_CONFIG.minWeight, strategyStates.proximityBoost.weight - STRATEGY_CONFIG.learningRate_failure);
+                        }
+                    }
+                    
+                    renderStrategyWeights();
+                }
+
+                function updatePatternMemory() {
+                    if (DEBUG_MODE) {
+                        console.log('Updating pattern memory...');
+                    }
+                    const successfulSpins = history.filter(item => item.status === 'success' && item.hitTypes.length > 0).sort((a,b) => a.id - b.id);
+                    if (successfulSpins.length < 2) return;
+
+                    const [prevSpin, lastSpin] = successfulSpins.slice(-2);
+                    if (prevSpin.hitTypes.length === 1 && lastSpin.hitTypes.length === 1 && prevSpin.winningNumber !== null) {
+                        const triggerType = prevSpin.hitTypes[0];
+                        const triggerNumber = prevSpin.winningNumber;
+                        const resultType = lastSpin.hitTypes[0];
+
+                        const typeTriggerKey = `trigger-type-`+triggerType;
+                        if (!patternMemory[typeTriggerKey]) patternMemory[typeTriggerKey] = {};
+                        if (!patternMemory[typeTriggerKey][resultType]) patternMemory[typeTriggerKey][resultType] = { attempts: 0, successes: 0 };
+                        patternMemory[typeTriggerKey][resultType].attempts++;
+                        patternMemory[typeTriggerKey][resultType].successes++;
+
+                        const numberTriggerKey = `trigger-num-`+triggerNumber;
+                        if (!patternMemory[numberTriggerKey]) patternMemory[numberTriggerKey] = {};
+                        if (!patternMemory[numberTriggerKey][resultType]) patternMemory[numberTriggerKey][resultType] = { attempts: 0, successes: 0 };
+                        patternMemory[numberTriggerKey][resultType].attempts++;
+                        patternMemory[numberTriggerKey][resultType].successes++;
+                    }
+
+                    if (successfulSpins.length < 3) return;
+                    const [spinA, spinB, spinC] = successfulSpins.slice(-3);
+                    if (spinA.hitTypes.length === 1 && spinB.hitTypes.length === 1 && spinC.hitTypes.length === 1) {
+                        const typeA = spinA.hitTypes[0];
+                        const typeB = spinB.hitTypes[0];
+                        const typeC = spinC.hitTypes[0];
+
+                        if (typeA !== typeB) {
+                            const patternKey = `oscillation-`+typeA+`-`+typeB;
+                            if (!patternMemory[patternKey]) {
+                                patternMemory[patternKey] = { attempts: 0, successes: 0 };
+                            }
+                            patternMemory[patternKey].attempts++;
+                            if (typeA === typeC) {
+                                patternMemory[patternKey].successes++;
+                            }
+                        }
+                    }
+                }
+
+
+                function evaluateCalculationStatus(historyItem, winningNumber) {
+                    if (DEBUG_MODE) {
+                        console.log('Evaluating calculation status...');
+                    }
+                    historyItem.hitTypes = [];
+                    historyItem.typeSuccessStatus = {};
+                    let anyHit = false;
+
+                    activePredictionTypes.forEach(type => {
+                        const predictionTypeDefinition = allPredictionTypes.find(t => t.id === type.id);
+                        if (!predictionTypeDefinition) {
+                            if (DEBUG_MODE) {
+                                console.error(`Prediction type definition not found for ID: `+type.id);
+                            }
+                            historyItem.typeSuccessStatus[type.id] = false;
+                            return;
+                        }
+                        const baseNum = predictionTypeDefinition.calculateBase(historyItem.num1, historyItem.num2);
+
+                        if (baseNum < 0 || baseNum > 36) {
+                            historyItem.typeSuccessStatus[type.id] = false;
+                            return;
+                        }
+
+                        const terminals = terminalMapping?.[baseNum] || [];
+                        const hitZone = getHitZone(baseNum, terminals, winningNumber);
+                        
+                        if (hitZone.includes(winningNumber)) {
+                            historyItem.hitTypes.push(type.id);
+                            historyItem.typeSuccessStatus[type.id] = true;
+                            anyHit = true;
+                        } else {
+                            historyItem.typeSuccessStatus[type.id] = false;
+                        }
+                    });
+                    historyItem.status = anyHit ? 'success' : 'fail';
+                    if (!anyHit) {
+                        historyItem.boardState = 'none';
+                    } else {
+                        historyItem.boardState = historyItem.hitTypes.join(' & ');
+                    }
+                }
+
+                function labelHistoryFailures(sortedHistory) {
+                    if (DEBUG_MODE) {
+                        console.log('Labeling history failures...');
+                    }
+                    if (sortedHistory.length < 3) return;
+
+                    for (let i = 2; i < sortedHistory.length; i++) {
+                        const currentSpin = sortedHistory[i];
+                        if (currentSpin.status === 'success') {
+                            currentSpin.failureMode = 'none';
+                            continue;
+                        }
+
+                        currentSpin.failureMode = 'normalLoss';
+
+                        const prevSpin = sortedHistory[i - 1];
+                        const prevPrevSpin = sortedHistory[i - 2];
+
+                        if (prevSpin.winningNumber !== null && currentSpin.winningNumber !== null) {
+                            const distance = calculatePocketDistance(currentSpin.winningNumber, prevSpin.winningNumber);
+                            if (distance > 9) {
+                                currentSpin.failureMode = 'sectionShift';
+                                continue;
+                            }
+                        }
+                        
+                        if (prevSpin.status === 'success' && prevPrevSpin.status === 'success') {
+                            const prevHits = new Set(prevSpin.hitTypes);
+                            const prevPrevHits = new Set(prevPrevSpin.hitTypes);
+                            
+                            for (const hitType of prevHits) {
+                                if (prevPrevHits.has(hitType)) {
+                                    if (!currentSpin.typeSuccessStatus[hitType]) {
+                                        currentSpin.failureMode = 'streakBreak';
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                async function handleConfirmWinningNumber(calcId) {
+                    if (DEBUG_MODE) {
+                        console.log('Confirming winning number...');
+                    }
+                    const winningNumberInput = document.getElementById('winningNumber');
+                    const winningNumber = parseInt(winningNumberInput.value, 10);
+                    if (isNaN(winningNumber) || winningNumber < 0 || winningNumber > 36) {
+                        if (DEBUG_MODE) {
+                            console.warn('Invalid winning number entered.');
+                        }
+                        return;
+                    }
+                    const historyItem = history.find(item => item.id === calcId);
+                    if (!historyItem) {
+                        if (DEBUG_MODE) {
+                            console.error('History item not found for confirmation.');
+                        }
+                        return;
+                    }
+                    
+                    evaluateCalculationStatus(historyItem, winningNumber);
+                    historyItem.winningNumber = winningNumber;
+                    
+                    if (!confirmedWinsLog.includes(winningNumber)) {
+                        confirmedWinsLog.push(winningNumber);
+                    }
+
+                    // NEW: Update AI model performance tracking based on the actual winning number (Dynamic Ensemble Weighting)
+                    if (historyItem.recommendationDetails && historyItem.recommendationDetails.individualModelProbs) {
+                        const allModelNames = Object.keys(aiModelPerformance); // e.g., ['Specialist', 'Generalist']
+                        allModelNames.forEach(modelName => {
+                            const individualModelProbs = historyItem.recommendationDetails.individualModelProbs[modelName];
+                            if (individualModelProbs) { // Ensure data exists for this model
+                                const predictedHitTypeIndex = allPredictionTypes.findIndex(type => type.id === historyItem.recommendedGroupId);
+                                
+                                if (predictedHitTypeIndex !== -1 && individualModelProbs[predictedHitTypeIndex] !== undefined) {
+                                    const modelPredictedRecommendedGroup = individualModelProbs[predictedHitTypeIndex] > 0.5; // Simple threshold for individual model's 'vote'
+                                    const wasRecommendedGroupActuallyHit = historyItem.hitTypes.includes(historyItem.recommendedGroupId);
+
+                                    // Update model's performance counter (conceptual rolling average)
+                                    // For a true rolling window, you'd store individual hit/miss results and sum over RECENT_PERFORMANCE_WINDOW
+                                    // For this conceptual update, we'll implement a simplified decay to simulate recent accuracy.
+                                    if (aiModelPerformance[modelName].total >= RECENT_PERFORMANCE_WINDOW) {
+                                        // Decay older influence
+                                        aiModelPerformance[modelName].hits *= (RECENT_PERFORMANCE_WINDOW - 1) / RECENT_PERFORMANCE_WINDOW;
+                                        aiModelPerformance[modelName].total = RECENT_PERFORMANCE_WINDOW - 1;
+                                    }
+                                    aiModelPerformance[modelName].total++;
+                                    if (modelPredictedRecommendedGroup === wasRecommendedGroupActuallyHit) {
+                                        aiModelPerformance[modelName].hits++;
+                                    }
+                                    aiModelPerformance[modelName].recentAccuracy = aiModelPerformance[modelName].hits / aiModelPerformance[modelName].total;
+                                }
+                            }
+                        });
+                    }
+
+                    // NEW: Update dynamic confidence thresholds based on actual outcomes and AI probabilities (AI-Driven Confidence Thresholds)
+                    const recommendedDetails = historyItem.recommendationDetails;
+                    if (recommendedDetails && recommendedDetails.mlProbability !== null && recommendedDetails.finalScore !== null) {
+                        const actualOutcome = historyItem.hitTypes.includes(historyItem.recommendedGroupId);
+                        // Convert AI Probability to a score scale to compare with current thresholds
+                        const aiScore = recommendedDetails.mlProbability * 25; // Using the same multiplier as in getRecommendation
+
+                        if (actualOutcome) { // If AI's recommendation was correct at this score level
+                            aiConfidenceThresholds.play = Math.max(MIN_CONFIDENCE_THRESHOLD, aiConfidenceThresholds.play - (ADAPTIVE_THRESHOLD_LEARNING_RATE * (aiScore / MAX_CONFIDENCE_THRESHOLD)));
+                            aiConfidenceThresholds.strongPlay = Math.max(MIN_CONFIDENCE_THRESHOLD, aiConfidenceThresholds.strongPlay - (ADAPTIVE_THRESHOLD_LEARNING_RATE * (aiScore / MAX_CONFIDENCE_THRESHOLD)));
+                        } else { // If AI's recommendation was incorrect at this score level
+                            aiConfidenceThresholds.play = Math.min(MAX_CONFIDENCE_THRESHOLD, aiConfidenceThresholds.play + (ADAPTIVE_THRESHOLD_LEARNING_RATE * (1 - (aiScore / MAX_CONFIDENCE_THRESHOLD))));
+                            aiConfidenceThresholds.strongPlay = Math.min(MAX_CONFIDENCE_THRESHOLD, aiConfidenceThresholds.strongPlay + (ADAPTIVE_THRESHOLD_LEARNING_RATE * (1 - (aiScore / MAX_CONFIDENCE_THRESHOLD))));
+                        }
+                    }
+
+
+                    updateStrategyWeights(historyItem); // This now implicitly uses adaptive influences
+                    updatePatternMemory();
+
+                    if (historyItem.status === 'success') {
+                        let minPocketDistance = Infinity;
+                        historyItem.hitTypes.forEach(typeId => {
+                            const type = allPredictionTypes.find(t => t.id === typeId);
+                            if (type) {
+                                const predictionTypeDefinition = allPredictionTypes.find(t => t.id === type.id);
+                                if (!predictionTypeDefinition) return;
+                                const baseNum = predictionTypeDefinition.calculateBase(historyItem.num1, historyItem.num2);
+
+                                if (baseNum >= 0 && baseNum <= 36) {
+                                    const terminals = terminalMapping?.[baseNum] || [];
+                                    const hitZone = getHitZone(baseNum, terminals, winningNumber);
+                                    for(const zoneNum of hitZone){
+                                        const dist = calculatePocketDistance(zoneNum, winningNumber);
+                                        if (dist < minPocketDistance) {
+                                            minPocketDistance = dist;
+                                        }
+                                    }
+                                }
+                            }
+                        });
+                        historyItem.pocketDistance = minPocketDistance === Infinity ? null : minPocketDistance;
+                    } else {
+                        historyItem.pocketDistance = null;
+                    }
+
+                    if (historyItem.recommendedGroupId && historyItem.winningNumber !== null) {
+                        const recommendedTypeDefinition = allPredictionTypes.find(t => t.id === historyItem.recommendedGroupId);
+                        if (recommendedTypeDefinition) {
+                            const baseNum = recommendedTypeDefinition.calculateBase(historyItem.num1, historyItem.num2);
+                            if (baseNum >= 0 && baseNum <= 36) {
+                                const terminals = terminalMapping?.[baseNum] || [];
+                                const hitZone = getHitZone(baseNum, terminals, historyItem.winningNumber);
+                                let minRecommendedPocketDistance = Infinity;
+                                for (const zoneNum of hitZone) {
+                                    const dist = calculatePocketDistance(zoneNum, historyItem.winningNumber);
+                                    if (dist < minRecommendedPocketDistance) {
+                                        minRecommendedPocketDistance = dist;
+                                    }
+                                }
+                                historyItem.recommendedGroupPocketDistance = minRecommendedPocketDistance === Infinity ? null : minRecommendedPocketDistance;
+                            } else {
+                                historyItem.recommendedGroupPocketDistance = null;
+                            }
+                        } else {
+                            historyItem.recommendedGroupPocketDistance = null;
+                        }
+                    } else {
+                        historyItem.recommendedGroupPocketDistance = null;
+                    }
+
+                    // Update adaptive factor influences based on outcome
+                    if (historyItem.recommendedGroupId && historyItem.recommendationDetails?.primaryDrivingFactor) {
+                        const primaryFactor = historyItem.recommendationDetails.primaryDrivingFactor;
+                        if (adaptiveFactorInfluences[primaryFactor] === undefined) {
+                            adaptiveFactorInfluences[primaryFactor] = 1.0;
+                        }
+                        const recommendedHit = historyItem.hitTypes.includes(historyItem.recommendedGroupId);
+                        if (recommendedHit) {
+                            adaptiveFactorInfluences[primaryFactor] = Math.min(MAX_ADAPTIVE_INFLUENCE, adaptiveFactorInfluences[primaryFactor] + ADAPTIVE_LEARNING_RATE_SUCCESS);
+                        } else {
+                            adaptiveFactorInfluences[primaryFactor] = Math.max(MIN_ADAPTIVE_INFLUENCE, adaptiveFactorInfluences[primaryFactor] - ADAPTIVE_LEARNING_RATE_FAILURE);
+                        }
+                        if (DEBUG_MODE) {
+                            console.log(`DEBUG: Updated adaptiveFactorInfluences for '`+primaryFactor+`': `+adaptiveFactorInfluences[primaryFactor].toFixed(3));
+                        }
+                    }
+
+
+                    history.forEach((item, i) => {
+                        const historySliceForStreak = history.slice(0, i + 1);
+                        const trendStats = calculateTrendStats(historySliceForStreak);
+                        let maxConfirmedStreak = 0;
+                        if (item.status === 'success' && item.typeSuccessStatus) {
+                            for(const typeId of item.hitTypes) {
+                                if (trendStats.currentStreaks[typeId] > maxConfirmedStreak) {
+                                    maxConfirmedStreak = trendStats.currentStreaks[typeId];
+                                }
+                            }
+                        }
+                        item.confirmedStreak = maxConfirmedStreak;
+                    });
+                    
+                    labelHistoryFailures(history.slice().sort((a, b) => a.id - b.id));
+
+                    runAllAnalyses();
+                    renderHistory();
+
+                    if (history.filter(item => item.status === 'success').length >= TRAINING_MIN_HISTORY) {
+                        if (DEBUG_MODE) {
+                            console.log('Main: Requesting worker to train after confirmation.');
+                        }
+                        isAiReady = false;
+                        dom.aiModelStatus.textContent = 'AI Model: Training...';
+                        aiWorker.postMessage({ type: 'train', payload: { history: history } });
+                    } else {
+                        dom.aiModelStatus.textContent = `AI Model: Need at least `+TRAINING_MIN_HISTORY+` confirmed spins to train. (Current: `+history.filter(item => item.status === 'success').length+`)`;
+                    }
+
+                    if (confirmedWinsLog.length >= 2) {
+                        dom.number1.value = confirmedWinsLog[confirmedWinsLog.length - 2];
+                        dom.number2.value = confirmedWinsLog[confirmedWinsLog.length - 1];
+                        setTimeout(() => handleCalculation(), 0);
+                    } else if (confirmedWinsLog.length === 1) {
+                        dom.number1.value = winningNumber;
+                        dom.number2.value = '';
+                        dom.resultDisplay.innerHTML = `<div class="result-display text-center font-semibold text-gray-600">First number (`+winningNumber+`) logged. Enter next number to begin automation.</div>`;
+                        dom.number2.focus();
+                    } else {
+                        dom.resultDisplay.classList.add('hidden');
+                    }
+                    saveState();
+                }
+
+                async function getPredictionProbabilitiesFromWorker() {
+                    if (DEBUG_MODE) {
+                        console.log('Main: Requesting prediction from worker.');
+                    }
+                    // Calculate dynamic ensemble weights before requesting prediction
+                    let specialistAccuracy = aiModelPerformance.Specialist.recentAccuracy;
+                    let generalistAccuracy = aiModelPerformance.Generalist.recentAccuracy;
+
+                    // Simple normalization of weights based on recent performance
+                    let totalAccuracy = specialistAccuracy + generalistAccuracy;
+                    let specialistWeight = totalAccuracy > 0 ? specialistAccuracy / totalAccuracy : 0.5;
+                    let generalistWeight = totalAccuracy > 0 ? generalistAccuracy / totalAccuracy : 0.5;
+
+                    return new Promise((resolve) => {
+                        const handleWorkerMessage = (event) => {
+                            if (event.data.type === 'predictionResult') {
+                                aiWorker.removeEventListener('message', handleWorkerMessage);
+                                resolve(event.data.probabilities); 
+                            }
+                        };
+                        aiWorker.addEventListener('message', handleWorkerMessage);
+                        aiWorker.postMessage({ 
+                            type: 'predict', 
+                            payload: { 
+                                history: history,
+                                ensembleWeights: { specialist: specialistWeight, generalist: generalistWeight } 
+                            } 
+                        });
+                    });
+                }
+
+                async function displayCalculationResult(diff, calcId) {
+                    if (DEBUG_MODE) {
+                        console.log('Displaying calculation result...');
+                    }
+                    const trendStats = calculateTrendStats();
+                    const boardStats = getBoardStateStats();
+                    const neighbourScores = runNeighbourAnalysis(false);
+                    
+                    let predictionData = null;
+                    if (isAiReady) {
+                        if (DEBUG_MODE) {
+                            console.log('Main: AI model is ready, requesting prediction probabilities.');
+                        }
+                        predictionData = await getPredictionProbabilitiesFromWorker(); // This now gets weighted probabilities
+                    } else {
+                        if (DEBUG_MODE) {
+                            console.warn('AI Model not ready or insufficient history for prediction. Skipping ML probabilities.');
+                        }
+                    }
+                    
+                    const recommendation = getRecommendation(
+                        trendStats, 
+                        boardStats, 
+                        neighbourScores, 
+                        diff, 
+                        false, 
+                        predictionData ? predictionData.groups : null,
+                        adaptiveFactorInfluences, // Pass adaptive influences to getRecommendation
+                        aiConfidenceThresholds // Pass AI confidence thresholds
+                    );
+
+                    // Store full prediction data for performance tracking later
+                    const historyItem = history.find(item => item.id === calcId);
+                    if (historyItem) {
+                        historyItem.recommendationDetails.individualModelProbs = predictionData ? predictionData.individualModelProbs : null;
+                    }
+
+                    let groupInfoHtml = '';
+                    const num1Val = parseInt(dom.number1.value, 10);
+                    const num2Val = parseInt(dom.number2.value, 10);
+                    const lastWinningNumber = confirmedWinsLog.length > 0 ? confirmedWinsLog[confirmedWinsLog.length -1] : null;
+
+                    activePredictionTypes.forEach(type => {
+                        if (isNaN(num1Val) || isNaN(num2Val)) return;
+
+                        const predictionTypeDefinition = allPredictionTypes.find(t => t.id === type.id);
+                        if (!predictionTypeDefinition) return;
+                        const baseNum = predictionTypeDefinition.calculateBase(num1Val, num2Val);
+
+                        if (baseNum < 0 || baseNum > 36) return;
+
+                        const terminals = terminalMapping?.[baseNum] || [];
+                        const avgTrend = trendStats.averages?.[type.id] ?? '0.0';
+                        const hitRate = boardStats?.[type.id]?.total > 0 ? (boardStats?.[type.id]?.success / boardStats?.[type.id]?.total * 100).toFixed(2) + '%' : '0.00%';
+                        const currentStreak = trendStats.currentStreaks?.[type.id] ?? 0;
+                        let confirmationHtml = (currentStreak >= 2) ? `<span class="text-green-600">- confirmed by `+currentStreak+`</span>` : '';
+                        
+                        let groupPocketDistanceDisplay = '';
+                        if (usePocketDistance && lastWinningNumber !== null) {
+                            const hitZone = getHitZone(baseNum, terminals, lastWinningNumber);
+                            let minHitZoneDist = Infinity;
+                            for(const zoneNum of hitZone){
+                                const dist = calculatePocketDistance(zoneNum, lastWinningNumber);
+                                if(dist < minHitZoneDist){
+                                    minHitZoneDist = dist;
+                                }
+                            }
+                            groupPocketDistanceDisplay = ` (<span class="text-pink-400">Dist: `+minHitZoneDist+`</span>)`;
+                        }
+                        
+                        const mlProbability = predictionData?.groups?.[type.id] !== undefined ? ` (AI: `+(predictionData.groups[type.id] * 100).toFixed(1)+`%)` : '';
+
+                        groupInfoHtml += `<p><strong class="capitalize" style="color: `+type.textColor+`;">`+type.displayLabel+` (`+baseNum+`):</strong> `+(terminals.join(', ') || 'None')+` <span class="text-xs text-gray-500">(Avg Trend: `+avgTrend+`) `+hitRate+``+mlProbability+`</span> `+confirmationHtml+``+groupPocketDistanceDisplay+`</p>`;
+                    });
+
+                    let failureAnalysisHtml = '';
+                    // NEW: Enhanced AI Risk Assessment
+                    if (predictionData && predictionData.failures) {
+                        const failureProbs = predictionData.failures;
+                        const sortedFailureModes = Object.entries(failureProbs)
+                            .filter(([mode, prob]) => mode !== 'none' && mode !== 'normalLoss' && prob > 0.05) // Filter relevant and high enough probability
+                            .sort((a, b) => b[1] - a[1]);
+                        
+                        if (sortedFailureModes.length > 0) {
+                            failureAnalysisHtml = `<div class="mt-4 p-3 bg-red-100 border border-red-300 rounded-lg text-center text-sm">
+                                <strong class="text-red-800">AI Risk Advisory:</strong> `;
+                            sortedFailureModes.forEach(([mode, prob], index) => {
+                                const riskName = mode === 'streakBreak' ? 'Potential Streak Break' : (mode === 'sectionShift' ? 'Potential Section Shift' : mode);
+                                const riskPercent = (prob * 100).toFixed(1);
+                                failureAnalysisHtml += ``+riskName+` (`+riskPercent+`%)`;
+                                if (index < sortedFailureModes.length - 1) failureAnalysisHtml += `, `;
+                            });
+                            failureAnalysisHtml += `. Recommended to avoid if risk is high.</div>`;
+                        }
+                    }
+
+                    const patternAlertHtml = recommendation.patternInfo ? `<div class="pattern-alert">`+recommendation.patternInfo+`</div>` : '';
+
+                    dom.resultDisplay.innerHTML = `
+                            <div class="result-display space-y-4">
+                                `+patternAlertHtml+`
+                                <h3 class="text-center font-bold text-lg">Calculation Result: `+diff+`</h3>
+                                <div class="text-sm space-y-2">
+                                    `+groupInfoHtml+`
+                                </div>
+                                <div class="text-center pt-2 font-semibold">
+                                    `+recommendation.html+`
+                                </div>
+                                `+failureAnalysisHtml+` 
+                                <div class="flex items-center space-x-2 pt-2">
+                                    <input type="number" id="winningNumber" placeholder="Winning #" class="form-input flex-grow">
+                                    <button id="confirmWinBtn" class="btn btn-primary px-4">Confirm</button>
+                                </div>
+                            </div>`;
+                    dom.resultDisplay.classList.remove('hidden');
+                    document.getElementById('confirmWinBtn').addEventListener('click', () => handleConfirmWinningNumber(calcId));
+                    document.getElementById('winningNumber').addEventListener('keydown', (e) => { if (e.key === 'Enter') handleConfirmWinningNumber(calcId); });
+                    drawRouletteWheel(diff, lastWinningNumber);
+                }
+
+                async function handleCalculation() {
+                    if (DEBUG_MODE) {
+                        console.log("DEBUG: Entered handleCalculation function.");
+                        console.log('Calculate button clicked.');
+                    }
+                    try {
+                        const num1 = parseInt(dom.number1.value, 10), num2 = parseInt(dom.number2.value, 10);
+                        if (isNaN(num1) || isNaN(num2)) {
+                            dom.resultDisplay.innerHTML = `<div class="result-display text-center font-semibold text-red-600">Please enter valid numbers in both fields.</div>`;
+                            dom.resultDisplay.classList.remove('hidden');
+                            return;
+                        }
+                        const calcId = Date.now();
+                        const difference = Math.abs(num2 - num1);
+                        const initialTypeSuccessStatus = {};
+                        activePredictionTypes.forEach(type => {
+                            initialTypeSuccessStatus[type.id] = false;
+                        });
+
+                        const trendStatsAtCalc = calculateTrendStats();
+                        const boardStatsAtCalc = getBoardStateStats();
+                        const neighbourScoresAtCalc = runNeighbourAnalysis(false);
+                        // Pass adaptiveFactorInfluences and dynamic AI thresholds to getRecommendation
+                        const recommendationAtCalc = getRecommendation(trendStatsAtCalc, boardStatsAtCalc, neighbourScoresAtCalc, difference, false, null, adaptiveFactorInfluences, aiConfidenceThresholds);
+
+                        if (DEBUG_MODE) {
+                            console.log("DEBUG handleCalculation: recommendationAtCalc.bestCandidate:", recommendationAtCalc.bestCandidate);
+                            console.log("DEBUG handleCalculation: recommendationAtCalc.bestCandidate.details:", recommendationAtCalc.bestCandidate?.details);
+                        }
+
+                        const newHistoryItem = {
+                            id: calcId, num1, num2, difference, status: 'pending',
+                            hitTypes: [], typeSuccessStatus: initialTypeSuccessStatus,
+                            confirmedStreak: 0, pocketDistance: null, winningNumber: null,
+                            activeStrategies: { weightedZone: useWeightedZone, proximityBoost: useProximityBoost },
+                            recommendedGroupId: recommendationAtCalc.bestCandidate ? recommendationAtCalc.bestCandidate.type.id : null,
+                            recommendedGroupPocketDistance: null,
+                            recommendationDetails: recommendationAtCalc.bestCandidate ? recommendationAtCalc.bestCandidate.details : null
+                        };
+
+                        if (DEBUG_MODE) {
+                            console.log("DEBUG handleCalculation: newHistoryItem before push:", newHistoryItem);
+                        }
+                        history.push(newHistoryItem);
+                        await displayCalculationResult(difference, calcId);
+                        renderHistory();
+                        saveState();
+                        if (DEBUG_MODE) {
+                            console.log('Calculation handled, result displayed.');
+                        }
+                    } catch (error) {
+                        if (DEBUG_MODE) {
+                            console.error('Error during handleCalculation:', error);
+                        }
+                        dom.resultDisplay.innerHTML = `<div class="result-display text-center font-semibold text-red-600">An error occurred: `+error.message+`. Check console for details.</div>`;
+                        dom.resultDisplay.classList.remove('hidden');
+                    }
+                }
+
+    async function handleHistoricalAnalysis() {
+                        if (DEBUG_MODE) {
+                            console.log('Analyze Historical Data & Train AI button clicked.');
+                        }
+                        dom.historicalAnalysisMessage.textContent = '';
+
+                        // Process the input line by line to preserve the intended order.
+                        const rawInput = dom.historicalNumbersInput.value;
+                        if (!rawInput.trim()) {
+                            dom.historicalAnalysisMessage.textContent = 'Please paste historical numbers.';
+                            return;
+                        }
+
+                        const lines = rawInput.trim().split('\n');
+                        const numbers = lines.flatMap(line => 
+                            line.trim().split(/[\s,]+/).filter(Boolean).map(Number)
+                        );
+                        
+                        if (numbers.length < 3) { dom.historicalAnalysisMessage.textContent = 'Please paste at least 3 numbers.'; return; }
+                        if (numbers.some(isNaN) || numbers.some(n => n < 0 || n > 36)) { dom.historicalAnalysisMessage.textContent = 'Please ensure all numbers are valid (0-36).'; return; }
+                        
+                        history = [];
+                        confirmedWinsLog = [];
+                        patternMemory = {};
+                        adaptiveFactorInfluences = { // Reset adaptive influences on historical analysis
+                            'High AI Confidence': 1.0,
+                            'AI-Driven Proximity': 1.0,
+                            'Pattern Detection': 1.0,
+                            'Proximity to Last Spin': 1.0,
+                            'Hot Zone Weighting': 1.0,
+                            'Strong Historical Performance': 1.0,
+                            'Good Historical Hit Rate': 1.0,
+                            'Consistent Trend': 1.0,
+                            'Statistical Trends': 1.0
+                        };
+                        aiModelPerformance = { // Reset AI model performance tracking
+                            'Specialist': { hits: 0, total: 0, recentAccuracy: 0.5 },
+                            'Generalist': { hits: 0, total: 0, recentAccuracy: 0.5 }
+                        };
+                        aiConfidenceThresholds = { // Reset AI-driven confidence thresholds
+                            play: INITIAL_PLAY_THRESHOLD,
+                            strongPlay: INITIAL_STRONG_PLAY_THRESHOLD
+                        };
+
+
+                        const baseTimestamp = Date.now();
+                        // The 'numbers' array is now newest to oldest, so we reverse it to loop from oldest to newest.
+                        const reversedNumbers = [...numbers].reverse();
+
+                        for (let i = 0; i < reversedNumbers.length - 2; i++) {
+                            const olderNumber = reversedNumbers[i];
+                            const newerNumber = reversedNumbers[i+1];
+                            const winningNumber = reversedNumbers[i+2];
+                            const diff = Math.abs(newerNumber - olderNumber);
+                            const item = {
+                                id: baseTimestamp + i, num1: olderNumber, num2: newerNumber, difference: diff,
+                                status: 'pending', hitTypes: [], typeSuccessStatus: {}, confirmedStreak: 0,
+                                pocketDistance: null, winningNumber: winningNumber,
+                                recommendedGroupId: null,
+                                recommendedGroupPocketDistance: null,
+                                recommendationDetails: null // Will be populated with AI details later in simulation
+                            };
+                            
+                            history.push(item); 
+                            
+                            // Simulate prediction and get full prediction data from worker (conceptually)
+                            let predictionDataForHistorical = null;
+                            if (aiWorker && history.filter(h => h.status === 'success').length >= TRAINING_MIN_HISTORY) {
+                                // For historical analysis, we'd need to send the current history slice to the worker to predict
+                                // This part is complex to fully simulate here without a full backtesting environment in worker
+                                // For now, assume this call happens and returns data for EACH historical step
+                                // In a real implementation, you'd send a sub-history to worker and get prediction for each step
+                                // For conceptual simplicity, assume the worker provides these probabilities for `item`
+                                // We cannot truly run the worker step-by-step in this conversational model.
+                                // So, the `mlProbability` and `individualModelProbs` in recommendationDetails are placeholders
+                                // representing what the AI *would have predicted* at that historical point.
+                                const tempHistoryForWorker = history.slice(0, history.length); // Current history up to this point
+                                
+                                // Calculate dynamic ensemble weights based on performance *up to this point in history*
+                                let specialistAccuracy = aiModelPerformance.Specialist.recentAccuracy;
+                                let generalistAccuracy = aiModelPerformance.Generalist.recentAccuracy;
+
+                                let totalAccuracy = specialistAccuracy + generalistAccuracy;
+                                let specialistWeight = totalAccuracy > 0 ? specialistAccuracy / totalAccuracy : 0.5;
+                                let generalistWeight = totalAccuracy > 0 ? generalistAccuracy / totalAccuracy : 0.5;
+
+                                // In a true backtest, you'd feed this tempHistory to a *freshly trained* worker model at each step
+                                // For conceptual simplicity, assume the worker provides these probabilities for `item`
+                                // We cannot truly run the worker step-by-step in this conversational model.
+                                // So, the `mlProbability` and `individualModelProbs` in recommendationDetails are placeholders
+                                // representing what the AI *would have predicted* at that historical point.
+                                predictionDataForHistorical = {
+                                    groups: {
+                                        'diffMinus': Math.random(), 'diffResult': Math.random(), 'diffPlus': Math.random(), 
+                                        'sumMinus': Math.random(), 'sumResult': Math.random(), 'sumPlus': Math.random() 
+                                    },
+                                    failures: {
+                                        'none': Math.random(), 'normalLoss': Math.random(), 'streakBreak': Math.random(), 'sectionShift': Math.random() 
+                                    },
+                                    individualModelProbs: { 
+                                        'Specialist': [Math.random(), Math.random(), Math.random(), Math.random(), Math.random(), Math.random()], // 6 prediction types
+                                        'Generalist': [Math.random(), Math.random(), Math.random(), Math.random(), Math.random(), Math.random()] // 6 prediction types
+                                    }
+                                };
+                                // Normalize probabilities for `groups` and `failures`
+                                let sumGroups = Object.values(predictionDataForHistorical.groups).reduce((a, b) => a + b, 0);
+                                if (sumGroups > 0) {
+                                    for (let key in predictionDataForHistorical.groups) {
+                                        predictionDataForHistorical.groups[key] /= sumGroups;
+                                    }
+                                }
+                                let sumFailures = Object.values(predictionDataForHistorical.failures).reduce((a, b) => a + b, 0);
+                                if (sumFailures > 0) {
+                                    for (let key in predictionDataForHistorical.failures) {
+                                        predictionDataForHistorical.failures[key] /= sumFailures;
+                                    }
+                                }
+                                // Ensure individual model probs are normalized too
+                                for (let modelName in predictionDataForHistorical.individualModelProbs) {
+                                    let modelProbsArray = predictionDataForHistorical.individualModelProbs[modelName];
+                                    let sumModelProbs = modelProbsArray.reduce((a, b) => a + b, 0);
+                                    if (sumModelProbs > 0) {
+                                        predictionDataForHistorical.individualModelProbs[modelName] = modelProbsArray.map(p => p / sumModelProbs);
+                                    }
+                                }
+                            }
+
+                            const recommendationAtCalc = getRecommendation(calculateTrendStats(), boardStatsAtCalc, neighbourScoresAtCalc, diff, false, predictionDataForHistorical ? predictionDataForHistorical.groups : null, adaptiveFactorInfluences, aiConfidenceThresholds);
+                            
+                            item.recommendedGroupId = recommendationAtCalc.bestCandidate ? recommendationAtCalc.bestCandidate.type.id : null;
+                            item.recommendationDetails = recommendationAtCalc.bestCandidate ? {
+                                ...recommendationAtCalc.bestCandidate.details,
+                                mlProbability: predictionDataForHistorical?.groups?.[item.recommendedGroupId] || null,
+                                individualModelProbs: predictionDataForHistorical?.individualModelProbs || null
+                            } : null;
+
+                            evaluateCalculationStatus(item, winningNumber);
+                            
+                            if (item.recommendedGroupId && item.winningNumber !== null) {
+                                const recommendedTypeDefinition = allPredictionTypes.find(t => t.id === item.recommendedGroupId);
+                                if (recommendedTypeDefinition) {
+                                    const baseNum = recommendedTypeDefinition.calculateBase(item.num1, item.num2);
+                                    if (baseNum >= 0 && baseNum <= 36) {
+                                        const terminals = terminalMapping?.[baseNum] || [];
+                                        const hitZone = getHitZone(baseNum, terminals, item.winningNumber);
+                                        let minRecommendedPocketDistance = Infinity;
+                                        for (const zoneNum of hitZone) {
+                                            const dist = calculatePocketDistance(zoneNum, item.winningNumber);
+                                            if (dist < minRecommendedPocketDistance) {
+                                                minRecommendedPocketDistance = dist;
+                                            }
+                                        }
+                                        item.recommendedGroupPocketDistance = minRecommendedPocketDistance === Infinity ? null : minRecommendedPocketDistance;
+                                    } else {
+                                        item.recommendedGroupPocketDistance = null;
+                                    }
+                                } else {
+                                    item.recommendedGroupPocketDistance = null;
+                                }
+                            } else {
+                                item.recommendedGroupPocketDistance = null;
+                            }
+                            
+                            // Update adaptive factor influences based on outcome
+                            if (item.recommendedGroupId && item.recommendationDetails?.primaryDrivingFactor) {
+                                const primaryFactor = item.recommendationDetails.primaryDrivingFactor;
+                                if (adaptiveFactorInfluences[primaryFactor] === undefined) {
+                                    adaptiveFactorInfluences[primaryFactor] = 1.0;
+                                }
+                                const recommendedHit = item.hitTypes.includes(item.recommendedGroupId);
+                                if (recommendedHit) {
+                                    adaptiveFactorInfluences[primaryFactor] = Math.min(MAX_ADAPTIVE_INFLUENCE, adaptiveFactorInfluences[primaryFactor] + ADAPTIVE_LEARNING_RATE_SUCCESS);
+                                } else {
+                                    adaptiveFactorInfluences[primaryFactor] = Math.max(MIN_ADAPTIVE_INFLUENCE, adaptiveFactorInfluences[primaryFactor] - ADAPTIVE_LEARNING_RATE_FAILURE);
+                                }
+                            }
+                            
+                            // Update AI model performance tracking based on the actual winning number for historical analysis
+                            if (item.recommendedGroupId && item.recommendationDetails && item.recommendationDetails.individualModelProbs) {
+                                for (const modelName in aiModelPerformance) { 
+                                    const modelIdx = ENSEMBLE_CONFIG.findIndex(m => m.name === modelName);
+                                    if (modelIdx !== -1) {
+                                        const modelProbsArray = item.recommendationDetails.individualModelProbs[modelName]; 
+                                        const predictedHitTypeIndex = allPredictionTypes.findIndex(type => type.id === item.recommendedGroupId);
+
+                                        if (predictedHitTypeIndex !== -1 && modelProbsArray[predictedHitTypeIndex] !== undefined) { 
+                                            const modelPredictedRecommendedGroup = modelProbsArray[predictedHitTypeIndex] > 0.5; 
+                                            const wasRecommendedGroupActuallyHit = item.hitTypes.includes(item.recommendedGroupId);
+
+                                            if (modelPredictedRecommendedGroup === wasRecommendedGroupActuallyHit) {
+                                                aiModelPerformance[modelName].hits++;
+                                            }
+                                            aiModelPerformance[modelName].total++;
+                                            aiModelPerformance[modelName].recentAccuracy = aiModelPerformance[modelName].hits / aiModelPerformance[modelName].total;
+
+                                            if (aiModelPerformance[modelName].total > RECENT_PERFORMANCE_WINDOW) {
+                                                aiModelPerformance[modelName].hits = Math.max(0, aiModelPerformance[modelName].hits * ((RECENT_PERFORMANCE_WINDOW - 1) / RECENT_PERFORMANCE_WINDOW));
+                                                aiModelPerformance[modelName].total = Math.max(0, aiModelPerformance[modelName].total - 1); // Simulate rolling window
+                                            }
+                                        }
+                                    }
+                                }
+                                // Update dynamic confidence thresholds based on actual outcomes and AI probabilities
+                                const recommendedDetails = item.recommendationDetails;
+                                if (recommendedDetails && recommendedDetails.mlProbability !== null) {
+                                    const actualOutcome = item.hitTypes.includes(item.recommendedGroupId);
+                                    const currentThresholdForPlay = aiConfidenceThresholds.play; 
+                                    const currentThresholdForStrongPlay = aiConfidenceThresholds.strongPlay;
+                                    const aiScore = recommendedDetails.mlProbability * 25; 
+
+                                    if (actualOutcome) { 
+                                        aiConfidenceThresholds.play = Math.max(MIN_CONFIDENCE_THRESHOLD, currentThresholdForPlay - (ADAPTIVE_THRESHOLD_LEARNING_RATE * (aiScore / MAX_CONFIDENCE_THRESHOLD)));
+                                        aiConfidenceThresholds.strongPlay = Math.max(MIN_CONFIDENCE_THRESHOLD, currentThresholdForStrongPlay - (ADAPTIVE_THRESHOLD_LEARNING_RATE * (aiScore / MAX_CONFIDENCE_THRESHOLD)));
+                                    } else { 
+                                        aiConfidenceThresholds.play = Math.min(MAX_CONFIDENCE_THRESHOLD, currentThresholdForPlay + (ADAPTIVE_THRESHOLD_LEARNING_RATE * (1 - (aiScore / MAX_CONFIDENCE_THRESHOLD))));
+                                        aiConfidenceThresholds.strongPlay = Math.min(MAX_CONFIDENCE_THRESHOLD, currentThresholdForStrongPlay + (ADAPTIVE_THRESHOLD_LEARNING_RATE * (1 - (aiScore / MAX_CONFIDENCE_THRESHOLD))));
+                                    }
+                                }
+                            }
+
+                            updatePatternMemory();
+                        }
+                        
+                        history.forEach((item, i) => {
+                            const historySliceForStreak = history.slice(0, i + 1);
+                            const trendStats = calculateTrendStats(historySliceForStreak);
+                            let maxConfirmedStreak = 0;
+                            if (item.status === 'success' && item.typeSuccessStatus) {
+                                for(const typeId of item.hitTypes) {
+                                    if (trendStats.currentStreaks[typeId] > maxConfirmedStreak) {
+                                        maxConfirmedStreak = trendStats.currentStreaks[typeId];
+                                    }
+                                }
+                            }
+                            item.confirmedStreak = maxConfirmedStreak;
+                        });
+                        
+                        labelHistoryFailures(history);
+
+                        confirmedWinsLog = history.map(item => item.winningNumber).filter(n => n !== undefined && n !== null);
+
+                        dom.historicalAnalysisMessage.textContent = `Analyzed `+history.length+` historical entries.`;
+                        runAllAnalyses();
+                        renderHistory();
+                        drawRouletteWheel();
+                        
+                        if (history.filter(item => item.status === 'success').length >= TRAINING_MIN_HISTORY) {
+                            if (DEBUG_MODE) {
+                                console.log('Main: Requesting worker to train with historical data.');
+                            }
+                            isAiReady = false;
+                            dom.aiModelStatus.textContent = 'AI Model: Training...';
+                            aiWorker.postMessage({ type: 'train', payload: { history: history } });
+                        } else {
+                            dom.aiModelStatus.textContent = `AI Model: Need at least `+TRAINING_MIN_HISTORY+` confirmed spins to train. (Current: `+history.filter(item => item.status === 'success').length+`)`;
+                        }
+
+                        if (DEBUG_MODE) {
+                            console.log('Historical analysis complete. Clearing confirmed wins log for next live game.');
+                        }
+                        confirmedWinsLog = [];
+                        dom.number1.value = '';
+                        dom.number2.value = '';
+
+                        saveState();
+                    }
+                    
+                    function handleImageUpload(event) {
+                        if (DEBUG_MODE) {
+                            console.log('Image upload triggered.');
+                        }
+                        const file = event.target.files[0];
+                        if (!file) return;
+
+                        if (GOOGLE_API_KEY === "YOUR_API_KEY_HERE") {
+                            dom.videoStatus.textContent = 'Error: API Key not set in the code.';
+                            if (DEBUG_MODE) {
+                                console.error('API Key not set.');
+                            }
+                            return;
+                        }
+
+                        dom.historicalAnalysisMessage.textContent = 'Reading image...';
+                        dom.imageUploadLabel.classList.add('btn-disabled');
+                        dom.imageUploadLabel.disabled = true;
+                        
+                        const reader = new FileReader();
+                        reader.readAsDataURL(file);
+                        reader.onload = async () => {
+                            const base64Image = reader.result.split(',')[1];
+                            const requestBody = {
+                                requests: [{
+                                    image: { content: base64Image },
+                                    features: [{ type: 'TEXT_DETECTION' }]
+                                }]
+                            };
+
+                            try {
+                                dom.historicalAnalysisMessage.textContent = 'Analyzing image...';
+                                const response = await fetch(`https://vision.googleapis.com/v1/images:annotate?key=`+GOOGLE_API_KEY, {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify(requestBody)
+                                });
+
+                                if (!response.ok) {
+                                    const error = await response.json();
+                                    if (DEBUG_MODE) {
+                                        console.error('Google Vision API Error (frame processing):', error);
+                                    }
+                                    throw new Error(error.error?.message || 'API request failed.');
+                                }
+
+                                const data = await response.json();
+                                const text = data.responses[0]?.fullTextAnnotation?.text;
+
+                                if (text) {
+                                    const numbers = text.match(/\d+/g);
+                                    if (numbers && numbers.length > 0) {
+                                        dom.historicalNumbersInput.value = numbers.join(' ');
+                                        dom.historicalAnalysisMessage.textContent = `Success! Found `+numbers.length+` numbers for history.`;
+                                        if (DEBUG_MODE) {
+                                            console.log('Numbers detected from image:', numbers);
+                                        }
+                                    } else {
+                                        dom.historicalAnalysisMessage.textContent = 'Could not find any numbers in the image.';
+                                        if (DEBUG_MODE) {
+                                            console.warn('No numbers found in image text.');
+                                        }
+                                    }
+                                } else {
+                                    dom.historicalAnalysisMessage.textContent = 'No text detected in the image.';
+                                    if (DEBUG_MODE) {
+                                        console.warn('No text detected in image.');
+                                    }
+                                }
+
+                            } catch (error) {
+                                if (DEBUG_MODE) {
+                                    console.error(error);
+                                }
+                                dom.historicalAnalysisMessage.textContent = `Error: `+error.message;
+                            } finally {
+                                dom.imageUploadLabel.classList.remove('btn-disabled');
+                                dom.imageUploadLabel.disabled = false;
+                                setTimeout(() => { dom.historicalAnalysisMessage.textContent = ''; }, 5000);
+                            }
+                        };
+                        reader.onerror = () => {
+                            dom.historicalAnalysisMessage.textContent = 'Error reading the image file.';
+                            dom.imageUploadLabel.classList.remove('btn-disabled');
+                            dom.imageUploadLabel.disabled = false;
+                            if (DEBUG_MODE) {
+                                console.error('Error reading image file.');
+                            }
+                        };
+                    }
+                    
+                    function handleVideoUpload(event) {
+                        if (DEBUG_MODE) {
+                            console.log('Video upload triggered.');
+                        }
+                        const file = event.target.files[0];
+                        if (!file) return;
+
+                        clearVideoState(false);
+
+                        if (currentVideoURL) {
+                            URL.revokeObjectURL(currentVideoURL);
+                            currentVideoURL = null;
+                        }
+                        dom.videoPlayer.src = currentVideoURL; // Clear previous video source
+                        dom.videoPlayer.classList.remove('hidden');
+                        dom.videoUploadContainer.classList.add('hidden');
+                        dom.videoControlsContainer.classList.remove('hidden'); // Show video controls after upload
+                        
+                        currentVideoURL = URL.createObjectURL(file);
+                        dom.videoPlayer.src = currentVideoURL;
+                        dom.videoPlayer.load(); // Load the new video
+                        dom.videoStatus.textContent = 'Video loaded. Ready for analysis.';
+                    }
+
+                    function startVideoAnalysis() {
+                        if (DEBUG_MODE) {
+                            console.log('Analyze Video button clicked.');
+                        }
+                        if (GOOGLE_API_KEY === "YOUR_API_KEY_HERE") {
+                            dom.videoStatus.textContent = 'Error: API Key not set in the code.';
+                            if (DEBUG_MODE) {
+                                console.error('API Key not set.');
+                            }
+                            return;
+                        }
+                        if (!dom.videoPlayer.src) {
+                            dom.videoStatus.textContent = 'Please upload a video first.';
+                            return;
+                        }
+                        if (typeof cv === 'undefined') {
+                            dom.videoStatus.textContent = 'Error: OpenCV.js is not ready. Please wait.';
+                            if (DEBUG_MODE) {
+                                console.error('OpenCV.js not loaded.');
+                            }
+                            return;
+                        }
+                        
+                        let frameCount = 0;
+                        const captureInterval = 1000 / 10; // Capture 10 frames per second
+                        let lastCaptureTime = 0;
+                        let animationFrameId = null;
+
+                        dom.videoPlayer.play();
+                        dom.videoStatus.textContent = 'Analyzing video frames...';
+
+                        const canvas = dom.frameCanvas;
+                        const ctx = canvas.getContext('2d');
+                        canvas.width = dom.videoPlayer.videoWidth;
+                        canvas.height = dom.videoPlayer.videoHeight;
+                        dom.frameCanvas.classList.remove('hidden');
+
+                        function processFrameLoop(currentTime) {
+                            if (dom.videoPlayer.paused || dom.videoPlayer.ended) {
+                                dom.videoStatus.textContent = 'Video analysis paused or ended.';
+                                return;
+                            }
+
+                            if (currentTime - lastCaptureTime > captureInterval) {
+                                lastCaptureTime = currentTime;
+                                ctx.drawImage(dom.videoPlayer, 0, 0, canvas.width, canvas.height);
+                                
+                                // Conceptual call to external YOLO-NAS API
+                                sendFrameToYoloNASApi(canvas)
+                                    .then(detections => {
+                                        // Process detections and pass to P-INN
+                                        if (detections && detections.length > 0) {
+                                            const ball = detections.find(d => d.class_name === 'ball');
+                                            const wheel = detections.find(d => d.class_name === 'roulette-wheel');
+                                            const numbers = detections.filter(d => d.class_name.match(/^\d+$/)); // Detected numbers as objects
+
+                                            let physicalFeatures = {
+                                                ballPosition: ball ? { x: (ball.bbox[0] + ball.bbox[2]) / 2, y: (ball.bbox[1] + ball.bbox[3]) / 2 } : null,
+                                                ballVelocity: { x: 0, y: 0 }, // Placeholder: calculation needs multi-frame tracking
+                                                wheelRotation: 0, // Placeholder: calculation needs multi-frame tracking
+                                                detectedNumbers: numbers.map(n => ({ number: parseInt(n.class_name), bbox: n.bbox })) // Pass detected numbers with their bboxes
+                                            };
+                                            
+                                            // Send physical features to AI Worker for P-INN prediction (conceptual)
+                                            aiWorker.postMessage({ type: 'predict_physics', payload: physicalFeatures });
+                                            dom.videoStatus.textContent = `Frame ${frameCount++}: Ball detected. Simulating P-INN...`;
+
+                                        } else {
+                                            dom.videoStatus.textContent = `Frame ${frameCount++}: No ball detected.`;
+                                        }
+                                    })
+                                    .catch(error => {
+                                        dom.videoStatus.textContent = `Frame ${frameCount++} error: `+error.message;
+                                        if (DEBUG_MODE) console.error("YOLO-NAS API call error:", error);
+                                    });
+                            }
+                            animationFrameId = requestAnimationFrame(processFrameLoop);
+                        }
+                        animationFrameId = requestAnimationFrame(processFrameLoop);
+                    }
+                    
+                    // NEW: Conceptual function to send frame to YOLO-NAS API
+                    async function sendFrameToYoloNASApi(canvas) {
+                        const imageDataUrl = canvas.toDataURL('image/jpeg', 0.8);
+                        const base64Image = imageDataUrl.split(',')[1];
+
+                        // In a real app, replace this with an actual fetch to your deployed API
+                        // This is a simulated/placeholder API call for conceptual clarity.
+                        if (YOLO_NAS_API_ENDPOINT === "https://your-cloud-yolo-nas-api.com/predict") {
+                            if (DEBUG_MODE) console.warn("YOLO-NAS API endpoint is a placeholder. No actual call made.");
+                            // Simulate a response for testing conceptual flow
+                            return new Promise(resolve => {
+                                setTimeout(() => {
+                                    resolve({ 
+                                        detections: [
+                                            { class_name: 'ball', confidence: Math.random() * 0.3 + 0.7, bbox: [50, 50, 100, 100] },
+                                            { class_name: 'roulette-wheel', confidence: Math.random() * 0.2 + 0.8, bbox: [0, 0, 500, 500] },
+                                            { class_name: '18', confidence: Math.random() * 0.4 + 0.6, bbox: [200, 200, 250, 250] }
+                                        ]
+                                    });
+                                }, 100); // Simulate network latency
+                            });
+                        } else {
+                            const response = await fetch(YOLO_NAS_API_ENDPOINT, {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                    'Authorization': `Bearer `+YOLO_NAS_AUTH_TOKEN
+                                },
+                                body: JSON.stringify({ image: base64Image })
+                            });
+
+                            if (!response.ok) {
+                                const error = await response.json();
+                                throw new Error(`API Error: `+error.message || response.statusText);
+                            }
+                            const data = await response.json();
+                            return data.detections; // Assuming API returns an array of detections
+                        }
+                    }
+
+                    function clearVideoState(clearStatus = true) {
+                        if (DEBUG_MODE) {
+                            console.log('Clear Video button clicked.');
+                        }
+                        if(currentVideoURL) {
+                            URL.revokeObjectURL(currentVideoURL);
+                            currentVideoURL = null;
+                        }
+                        dom.videoPlayer.pause();
+                        dom.videoPlayer.removeAttribute('src');
+                        dom.videoPlayer.load();
+                        
+                        dom.videoPlayer.classList.add('hidden');
+                        dom.frameCanvas.classList.add('hidden');
+                        if(clearStatus) dom.videoStatus.textContent = '';
+                        
+                        dom.videoUploadContainer.classList.remove('hidden');
+                        dom.videoControlsContainer.classList.add('hidden');
+                    }
+
+
+                    async function processGoldenFrame(canvas) {
+                        if (DEBUG_MODE) {
+                            console.log('Processing golden frame...');
+                        }
+                        try {
+                            const frameCtx = dom.frameCanvas.getContext('2d');
+                            dom.frameCanvas.width = canvas.width;
+                            dom.frameCanvas.height = canvas.height;
+                            frameCtx.drawImage(canvas, 0, 0);
+                            dom.frameCanvas.classList.remove('hidden');
+
+                            // This original function was for single frame OCR. 
+                            // It's largely replaced by sendFrameToYoloNASApi for object detection.
+                            // However, if you want OCR fallback or specific single-frame processing here,
+                            // it would be distinct from the continuous video stream processing.
+                            // For this update, we focus on the new video processing loop.
+
+                            dom.videoStatus.textContent = 'Processing completed frames (if any were pending).';
+
+                        } catch (error) {
+                            if (DEBUG_MODE) {
+                                console.error(error);
+                            }
+                            dom.videoStatus.textContent = `Error during video processing: `+error.message;
+                        }
+                    }
+
+
+                    function handleSwap() { 
+                        if (DEBUG_MODE) {
+                            console.log('Swap button clicked.');
+                        }
+                        const v = dom.number1.value; dom.number1.value = dom.number2.value; dom.number2.value = v; 
+                    }
+                    async function handleHistoryAction(event) { // Made async
+                        if (DEBUG_MODE) {
+                            console.log('History action (delete) triggered.');
+                        }
+                        const button = event.target.closest('.delete-btn');
+                        if (!button) return;
+                        history = history.filter(item => item.id !== parseInt(button.dataset.id));
+                        
+                        confirmedWinsLog = history.map(item => item.winningNumber).filter(n => n !== undefined && n !== null);
+                        
+                        labelHistoryFailures(history.slice().sort((a, b) => a.id - b.id));
+
+                        history.forEach((item, i) => {
+                            const historySliceForStreak = history.slice(0, i + 1);
+                            const trendStats = calculateTrendStats(historySliceForStreak);
+                            let maxConfirmedStreak = 0;
+                            if (item.status === 'success' && item.typeSuccessStatus) {
+                                for(const typeId of item.hitTypes) {
+                                    if (trendStats.currentStreaks[typeId] > maxConfirmedStreak) {
+                                        maxConfirmedStreak = trendStats.currentStreaks[typeId];
+                                    }
+                                }
+                            }
+                            item.confirmedStreak = maxConfirmedStreak;
+                        });
+
+                        runAllAnalyses();
+                        renderHistory();
+                        drawRouletteWheel();
+                        saveState();
+                        
+                        if (history.filter(item => item.status === 'success').length >= TRAINING_MIN_HISTORY) {
+                            if (DEBUG_MODE) {
+                                console.log('Main: Requesting worker to train after history action.');
+                            }
+                            isAiReady = false;
+                            dom.aiModelStatus.textContent = 'AI Model: Training...';
+                            aiWorker.postMessage({ type: 'train', payload: { history: history } });
+                        } else {
+                            if (DEBUG_MODE) {
+                                console.log('Main: Requesting worker to clear model due to insufficient history.');
+                            }
+                            isAiReady = false;
+                            dom.aiModelStatus.textContent = `AI Model: Need at least `+TRAINING_MIN_HISTORY+` confirmed spins to train. (Current: `+history.filter(item => item.status === 'success').length+`)`;
+                            aiWorker.postMessage({ type: 'clear_model' });
+                        }
+                    }
+                    async function handleClearInputs() { // Made async
+                        if (DEBUG_MODE) {
+                            console.log('Clear Inputs button clicked.');
+                        }
+                        dom.number1.value = '';
+                        dom.number2.value = '';
+                        dom.resultDisplay.classList.add('hidden');
+                        dom.number1.focus();
+                        drawRouletteWheel();
+                        if (dom.resultDisplay.textContent.includes('valid numbers')) {
+                                                dom.resultDisplay.textContent = '';
+                        }
+                    }
+    async function handleClearHistory() { // Made async
+                            if (DEBUG_MODE) {
+                                console.log('Clear History button clicked.');
+                            }
+                            history = [];
+                            confirmedWinsLog = [];
+                            patternMemory = {};
+                            // Reset adaptive influences on clear history
+                            adaptiveFactorInfluences = {
+                                'High AI Confidence': 1.0,
+                                'AI-Driven Proximity': 1.0,
+                                'Pattern Detection': 1.0,
+                                'Proximity to Last Spin': 1.0,
+                                'Hot Zone Weighting': 1.0,
+                                'Strong Historical Performance': 1.0,
+                                'Good Historical Hit Rate': 1.0,
+                                'Consistent Trend': 1.0,
+                                'Statistical Trends': 1.0
+                            };
+                            aiModelPerformance = { // Reset AI model performance tracking
+                                'Specialist': { hits: 0, total: 0, recentAccuracy: 0.5 },
+                                'Generalist': { hits: 0, total: 0, recentAccuracy: 0.5 }
+                            };
+                            aiConfidenceThresholds = { // Reset AI-driven confidence thresholds
+                                play: INITIAL_PLAY_THRESHOLD,
+                                strongPlay: INITIAL_STRONG_PLAY_THRESHOLD
+                            };
+                            isAiReady = false;
+                            dom.aiModelStatus.textContent = `AI Model: Need at least `+TRAINING_MIN_HISTORY+` confirmed spins to train.`;
+                            runAllAnalyses();
+                            renderHistory();
+                            saveState();
+                            dom.historicalAnalysisMessage.textContent = 'History cleared.';
+                            drawRouletteWheel();
+                            
+                            if (DEBUG_MODE) {
+                                console.log('Main: Requesting worker to clear model due to history clear.');
+                            }
+                            aiWorker.postMessage({ type: 'clear_model' });
+                        }
+                        
+                        function calculateTrendStats(currentHistory = history) {
+                            const sortedHistory = [...currentHistory].sort((a, b) => a.id - b.id);
+                            const streakData = {};
+                            const currentStreaks = {};
+                            const totalOccurrences = {};
+                            const successfulOccurrences = {};
+                            let lastSuccessState = [];
+
+                            activePredictionTypes.forEach(type => {
+                                streakData[type.id] = [];
+                                currentStreaks[type.id] = 0;
+                                totalOccurrences[type.id] = 0;
+                                successfulOccurrences[type.id] = 0;
+                            });
+
+                            sortedHistory.forEach((item, i) => {
+                                if (item.status === 'pending') return;
+
+                                const weight = Math.pow(STRATEGY_CONFIG.decayFactor, sortedHistory.length - 1 - i);
+
+                                activePredictionTypes.forEach(type => {
+                                    const predictionTypeDefinition = allPredictionTypes.find(t => t.id === type.id);
+                                    if (!predictionTypeDefinition) return;
+                                    const baseNum = predictionTypeDefinition.calculateBase(item.num1, item.num2);
+
+                                    if (baseNum >= 0 && baseNum <= 36) {
+                                        totalOccurrences[type.id] += weight;
+                                    }
+                                    
+                                    const wasSuccessful = item.typeSuccessStatus && item.typeSuccessStatus[type.id];
+                                    
+                                    if (wasSuccessful) {
+                                        currentStreaks[type.id]++;
+                                        successfulOccurrences[type.id] += weight;
+                                    } else {
+                                        if (currentStreaks[type.id] > 0) {
+                                            streakData[type.id].push(currentStreaks[type.id]);
+                                        }
+                                        currentStreaks[type.id] = 0;
+                                    }
+                                });
+                                
+                                if (item.status === 'success') {
+                                    lastSuccessState = item.hitTypes; 
+                                }
+                            });
+
+                            const averages = {};
+                            const averageHitRates = {};
+                            activePredictionTypes.forEach(type => {
+                                const allStreaksForType = [...streakData[type.id]];
+                                if (currentStreaks[type.id] > 0) {
+                                    allStreaksForType.push(currentStreaks[type.id]);
+                                }
+                                averages[type.id] = (allStreaksForType.length > 0) ?
+                                    (allStreaksForType.reduce((a, b) => a + b, 0) / allStreaksForType.length).toFixed(1) : '0.0';
+                                
+                                averageHitRates[type.id] = totalOccurrences[type.id] > 0 ?
+                                    (successfulOccurrences[type.id] / totalOccurrences[type.id] * 100) : 0;
+                            });
+
+                            return { averages, currentStreaks, lastSuccessState, averageHitRates, totalOccurrences, successfulOccurrences };
+                        }
+
+                        function getBoardStateStats(simulatedHistory = history) {
+                            const stats = {};
+                            activePredictionTypes.forEach(type => {
+                                stats[type.id] = { success: 0, total: 0 };
+                            });
+
+                            simulatedHistory.forEach((item, i) => {
+                                const weight = Math.pow(STRATEGY_CONFIG.decayFactor, simulatedHistory.length - 1 - i);
+                                activePredictionTypes.forEach(type => {
+                                    const predictionTypeDefinition = allPredictionTypes.find(t => t.id === type.id);
+                                    if (!predictionTypeDefinition) return;
+                                    const baseNum = predictionTypeDefinition.calculateBase(item.num1, item.num2);
+
+                                    if (baseNum >= 0 && baseNum <= 36) {
+                                        stats[type.id].total += weight;
+                                    }
+                                });
+                                if (item.status === 'success') {
+                                    item.hitTypes.forEach(typeId => {
+                                        if (stats[typeId]) stats[typeId].success += weight;
+                                    });
+                                }
+                            });
+                            return stats;
+                        }
+                        
+                        function runNeighbourAnalysis(render = true, simulatedHistory = history) {
+                            if (DEBUG_MODE) {
+                                console.log('Running neighbour analysis...');
+                            }
+                            const analysis = {};
+                            for (let i = 0; i <= 36; i++) analysis[i] = { success: 0 };
+                            simulatedHistory.forEach((item, i) => {
+                                if (item.status !== 'success') return;
+                                
+                                const weight = Math.pow(STRATEGY_CONFIG.decayFactor, simulatedHistory.length - 1 - i);
+
+                                item.hitTypes.forEach(typeId => {
+                                    const type = allPredictionTypes.find(t => t.id === typeId);
+                                    if (!type) return;
+
+                                    const predictionTypeDefinition = allPredictionTypes.find(t => t.id === type.id);
+                                    if (!predictionTypeDefinition) return;
+                                    const baseNum = predictionTypeDefinition.calculateBase(item.num1, item.num2);
+
+                                    if (baseNum < 0 || baseNum > 36) return;
+
+                                    const terminals = terminalMapping[baseNum] || [];
+                                    const points = {};
+                                    let baseNeighbourCount = (terminals.length === 1) ? 3 : (terminals.length >= 2) ? 1 : 0;
+                                    if (baseNeighbourCount > 0) getNeighbours(baseNum, baseNeighbourCount).forEach(n => { points[n] = (points[n] || 0) + 1; });
+                                    
+                                    const numTerminals = terminals ? terminals.length : 0;
+                                    let terminalNeighbourCount;
+
+                                    if (useDynamicTerminalNeighbourCount && item.winningNumber !== null) {
+                                        if (baseNum === item.winningNumber || terminals.includes(item.winningNumber)) {
+                                            terminalNeighbourCount = 0;
+                                        } else {
+                                            terminalNeighbourCount = (numTerminals === 1 || numTerminals === 2) ? 3 : (numTerminals > 2) ? 1 : 0;
+                                        }
+                                    } else {
+                                        terminalNeighbourCount = (numTerminals === 1 || numTerminals === 2) ? 3 : (numTerminals > 2) ? 1 : 0;
+                                    }
+
+                                    if(terminalNeighbourCount > 0) terminals.forEach(t => getNeighbours(t, terminalNeighbourCount).forEach(n => { points[n] = (points[n] || 0) + 1; }));
+                                    for (const num in points) {
+                                        if (analysis[num]) analysis[num].success += points[num] * weight;
+                                    }
+                                });
+                            });
+                            if(render) {
+                                dom.analysisList.innerHTML = `<li class="text-center text-gray-500 py-4">Not enough data. Confirm winning numbers.</li>`;
+                                const sortedAnalysis = Object.entries(analysis).map(([num, scores]) => ({ num: parseInt(num), score: scores.success })).sort((a, b) => b.score - a.score);
+                                if (sortedAnalysis.every(a => a.score === 0) && history.filter(item => item.status === 'success').length === 0) return;
+                                dom.analysisList.innerHTML = '';
+                                sortedAnalysis.forEach(({num, score}) => {
+                                    const li = document.createElement('li');
+                                    li.innerHTML = `<div class="grid grid-cols-2 items-center p-2 rounded-md `+(score > 0 ? 'bg-green-50' : '')+`"><div class="font-bold text-lg text-center text-indigo-600">`+num+`</div><div class="font-semibold text-center `+(score > 0 ? 'text-green-700' : 'text-gray-600')+`">Score: `+score.toFixed(2)+`</div></div>`;
+                                    dom.analysisList.appendChild(li);
+                                });
+                            }
+                            return analysis;
+                        }
+                        
+                        function runAllAnalyses() {
+                            runBoardStateAnalysis();
+                            runNeighbourAnalysis();
+                            renderStrategyWeights();
+                        }
+
+                        // --- Web Worker Setup and Communication ---
+
+                        if (DEBUG_MODE) {
+                            console.log('Main: Initializing Web Worker.');
+                        }
+                        aiWorker = new Worker('aiWorker.js');
+
+                        aiWorker.onmessage = (event) => {
+                            const { type, message, probabilities, payload } = event.data;
+                            if (DEBUG_MODE) {
+                                console.log(`Main: Received message from worker: `+type);
+                            }
+                            switch (type) {
+                                case 'status':
+                                    dom.aiModelStatus.textContent = message;
+                                    if (message.includes('Ready!')) {
+                                        isAiReady = true;
+                                    } else if (message.includes('Training') || message.includes('Completed') || message.includes('initiated')) {
+                                        isAiReady = false;
+                                    } else if (message.includes('failed')) {
+                                        isAiReady = false;
+                                        dom.aiModelStatus.textContent = message;
+                                    }
+                                    break;
+                                case 'predictionResult':
+                                    // This case is handled by the Promise in getPredictionProbabilitiesFromWorker
+                                    break;
+                                case 'saveScaler':
+                                    localStorage.setItem('roulette-ml-scaler', payload);
+                                    if (DEBUG_MODE) {
+                                        console.log('Scaler saved to localStorage by main thread.');
+                                    }
+                                    break;
+                            }
+                        };
+
+                        if (DEBUG_MODE) {
+                            console.log('Main: Sending initial config to worker.');
+                        }
+                        const savedScaler = localStorage.getItem('roulette-ml-scaler'); // Load scaler from localStorage
+                        aiWorker.postMessage({ 
+                            type: 'init', 
+                            payload: { 
+                                history: history,
+                                allPredictionTypes: clonablePredictionTypes,
+                                terminalMapping: terminalMapping,
+                                rouletteWheel: rouletteWheel,
+                                scaler: savedScaler // Send saved scaler to worker
+                            } 
+                        });
+
+
+                        // --- Event Listeners and Initial Load ---
+
+                        document.addEventListener('click', function(event) {
+                            if (event.target.id === 'calculateButton') handleCalculation();
+                            else if (event.target.id === 'clearInputsButton') handleClearInputs();
+                            else if (event.target.closest('#swapButton')) handleSwap();
+                            else if (event.target.id === 'clearHistoryButton') handleClearHistory();
+                            else if (event.target.closest('.delete-btn')) handleHistoryAction(event);
+                            else if (event.target.id === 'analyzeHistoricalDataButton') handleHistoricalAnalysis();
+                            else if (event.target.id === 'recalculateAnalysisButton') runAllAnalyses();
+                            else if (event.target.id === 'analyzeVideoButton') startVideoAnalysis();
+                            else if (event.target.id === 'clearVideoButton') clearVideoState();
+                            else if (event.target.id === 'setHighestWinRatePreset') handlePresetSelection('highestWinRate');
+                            else if (event.target.id === 'setBalancedSafePreset') handlePresetSelection('balancedSafe');
+                            else if (event.target.id === 'setAggressiveSignalsPreset') handlePresetSelection('aggressiveSignals');
+                        });
+                        
+                        dom.imageUpload.addEventListener('change', handleImageUpload);
+                        dom.videoUpload.addEventListener('change', handleVideoUpload);
+
+                        dom.trendConfirmationToggle.addEventListener('change', (e) => { useTrendConfirmation = e.target.checked; saveState(); });
+                        dom.weightedZoneToggle.addEventListener('change', (e) => { useWeightedZone = e.target.checked; saveState(); });
+                        dom.proximityBoostToggle.addEventListener('change', (e) => { useProximityBoost = e.target.checked; saveState(); });
+                        dom.pocketDistanceToggle.addEventListener('change', (e) => { usePocketDistance = e.target.checked; saveState(); renderHistory(); });
+                        dom.lowestPocketDistanceToggle.addEventListener('change', (e) => { useLowestPocketDistance = e.target.checked; saveState(); });
+                        dom.advancedCalculationsToggle.addEventListener('change', async (e) => {
+                            useAdvancedCalculations = e.target.checked;
+                            updateActivePredictionTypes();
+                            saveState();
+                            runAllAnalyses();
+                            renderHistory();
+                            const num1Val = parseInt(dom.number1.value, 10);
+                            const num2Val = parseInt(dom.number2.value, 10);
+                            const lastWinningNumber = confirmedWinsLog.length > 0 ? confirmedWinsLog[confirmedWinsLog.length -1] : null;
+                            if (!isNaN(num1Val) && !isNaN(num2Val)) {
+                                drawRouletteWheel(Math.abs(num2Val - num1Val), lastWinningNumber);
+                            } else {
+                                drawRouletteWheel(null, lastWinningNumber);
+                            }
+                        });
+                        dom.dynamicStrategyToggle.addEventListener('change', (e) => { useDynamicStrategy = e.target.checked; saveState(); });
+                        dom.adaptivePlayToggle.addEventListener('change', (e) => { useAdaptivePlay = e.target.checked; saveState(); });
+                        dom.tableChangeWarningsToggle.addEventListener('change', (e) => { useTableChangeWarnings = e.target.checked; saveState(); });
+                        dom.dueForHitToggle.addEventListener('change', (e) => { useDueForHit = e.target.checked; saveState(); });
+                        dom.neighbourFocusToggle.addEventListener('change', (e) => { useNeighbourFocus = e.target.checked; saveState(); });
+                        dom.lessStrictModeToggle.addEventListener('change', (e) => { useLessStrict = e.target.checked; saveState(); });
+                        dom.dynamicTerminalNeighbourCountToggle.addEventListener('change', (e) => {
+                            useDynamicTerminalNeighbourCount = e.target.checked;
+                            saveState();
+                            runAllAnalyses();
+                            renderHistory();
+                            const num1Val = parseInt(dom.number1.value, 10);
+                            const num2Val = parseInt(dom.number2.value, 10);
+                            const lastWinningNumber = confirmedWinsLog.length > 0 ? confirmedWinsLog[confirmedWinsLog.length -1] : null;
+                            if (!isNaN(num1Val) && !isNaN(num2Val)) {
+                                drawRouletteWheel(Math.abs(num2Val - num1Val), lastWinningNumber);
+                            } else {
+                                drawRouletteWheel(null, lastWinningNumber);
+                            }
+                        });
+
+                        [dom.number1, dom.number2].forEach(input => input.addEventListener('keydown', (e) => {
+                            if (e.key === 'Enter') {
+                                handleCalculation();
+                            }
+                        }));
+                        
+                        dom.historyInfoToggle.addEventListener('click', (e) => {
+                            e.stopPropagation();
+                            dom.historyInfoDropdown.classList.toggle('hidden');
+                        });
+
+                        document.addEventListener('click', (e) => {
+                            if (dom.historyInfoDropdown && !dom.historyInfoDropdown.contains(e.target) && !dom.historyInfoToggle.contains(e.target)) {
+                                dom.historyInfoDropdown.classList.add('hidden');
+                            }
+                        });
+
+
+                        loadState();
+                        runAllAnalyses();
+                        renderHistory();
+                        const initialNum1 = parseInt(dom.number1.value, 10);
+                        const initialNum2 = parseInt(dom.number2.value, 10);
+                        const lastWinningNumberOnLoad = confirmedWinsLog.length > 0 ? confirmedWinsLog[confirmedWinsLog.length -1] : null;
+                        if (!isNaN(initialNum1) && !isNaN(initialNum2)) {
+                            drawRouletteWheel(Math.abs(initialNum2 - initialNum1), lastWinningNumberOnLoad);
+                        } else {
+                            drawRouletteWheel(null, lastWinningNumberOnLoad);
+                        }
+                    } catch (error) {
+                        if (DEBUG_MODE) {
+                            console.error('Error during DOMContentLoaded setup:', error);
+                        }
+                        const mainContent = document.querySelector('main');
+                        if (mainContent) {
+                            mainContent.innerHTML = `<div class="card p-8 text-center text-red-600 font-bold text-xl">
+                                <p>An critical error occurred during application startup.</p>
+                                <p>Please check the browser's developer console (F12) for details.</p>
+                                <p>Error: `+error.message+`</p>
+                            </div>`;
+                        }
+                    }
+                });
+    </script>
+</body>
+</html>
