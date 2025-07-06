@@ -158,25 +158,22 @@ async function trainEnsemble(historyData) {
     for (const member of ensemble) {
         try {
             self.postMessage({ type: 'status', message: `AI Ensemble: Training ${member.name}...` });
-            // Dispose old model before training
+// Dispose old model before training
             if (member.model) {
                 member.model.dispose();
                 member.model = null; // Ensure the reference is cleared
             }
             
-            // Wrap model creation and fitting in tf.tidy for proper memory management
-            await tf.tidy(async () => {
-                member.model = createMultiOutputLSTMModel([SEQUENCE_LENGTH, featureCount], groupLabelCount, failureLabelUnits, member.lstmUnits);
-                
-                await member.model.fit(xs, ys, {
-                    epochs: member.epochs,
-                    batchSize: member.batchSize,
-                    callbacks: {
-                        onEpochEnd: (epoch) => {
-                            self.postMessage({ type: 'status', message: `AI Ensemble: Training ${member.name} (Epoch ${epoch + 1}/${member.epochs})` });
-                        }
+            member.model = createMultiOutputLSTMModel([SEQUENCE_LENGTH, featureCount], groupLabelCount, failureLabelCount, member.lstmUnits); // Corrected 'failureLabelUnits' to 'failureLabelCount'
+            
+            await member.model.fit(xs, ys, {
+                epochs: member.epochs,
+                batchSize: member.batchSize,
+                callbacks: {
+                    onEpochEnd: (epoch) => {
+                        self.postMessage({ type: 'status', message: `AI Ensemble: Training ${member.name} (Epoch ${epoch + 1}/${member.epochs})` });
                     }
-                });
+                }
             });
             await member.model.save(`indexeddb://${member.path}`);
             console.log(`TF.js Model ${member.name} saved.`);
