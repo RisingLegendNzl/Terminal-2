@@ -1980,7 +1980,14 @@
                                 }
                             }
 
-                            const recommendationAtCalc = getRecommendation(calculateTrendStats(), boardStatsAtCalc, neighbourScoresAtCalc, diff, false, predictionDataForHistorical ? predictionDataForHistorical.groups : null, adaptiveFactorInfluences, aiConfidenceThresholds);
+                            // Define the history slice for the current step of the historical analysis
+                            const currentHistorySlice = history.slice(0, history.length); // history grows with each iteration
+                            
+                            const trendStatsAtCalc = calculateTrendStats(currentHistorySlice);
+                            const boardStatsAtCalc = getBoardStateStats(currentHistorySlice);
+                            const neighbourScoresAtCalc = runNeighbourAnalysis(false, currentHistorySlice);
+                            
+                            const recommendationAtCalc = getRecommendation(trendStatsAtCalc, boardStatsAtCalc, neighbourScoresAtCalc, diff, false, predictionDataForHistorical ? predictionDataForHistorical.groups : null, adaptiveFactorInfluences, aiConfidenceThresholds);
                             
                             item.recommendedGroupId = recommendationAtCalc.bestCandidate ? recommendationAtCalc.bestCandidate.type.id : null;
                             item.recommendationDetails = recommendationAtCalc.bestCandidate ? {
