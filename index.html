@@ -996,11 +996,10 @@
                     if (typeA !== typeB) {
                         const patternKey = `oscillation-`+typeA+`-`+typeB;
                         if (!patternMemory[patternKey]) {
-                            patternMemory[patternKey] = { attempts: 0, successes: 0 };
-                        }
-                        patternMemory[patternKey].attempts++;
-                        if (typeA === typeC) {
-                            patternMemory[key].successes++;
+                            patternMemory[key].attempts++;
+                            if (typeA === typeC) {
+                                patternMemory[key].successes++;
+                            }
                         }
                     }
                 }
