@@ -1674,15 +1674,15 @@
                         }
                     }
                     
-                    const recommendation = getRecommendation(
+                 const recommendation = getRecommendation(
                         trendStats, 
                         boardStats, 
                         neighbourScores, 
                         diff, 
                         false, 
-                        predictionData ? predictionData.groups : null,
-                        adaptiveFactorInfluences, // Pass adaptive influences to getRecommendation
-                        aiConfidenceThresholds // Pass AI confidence thresholds
+                        predictionData, // Pass the entire predictionData object
+                        adaptiveFactorInfluences,
+                        aiConfidenceThresholds
                     );
 
                     // Store full prediction data for performance tracking later
@@ -1797,6 +1797,8 @@
                         const boardStatsAtCalc = getBoardStateStats();
                         const neighbourScoresAtCalc = runNeighbourAnalysis(false);
                         // Pass adaptiveFactorInfluences and dynamic AI thresholds to getRecommendation
+                        // NOTE: AI prediction data is *not* available at this stage (before displayCalculationResult)
+                        // So, we still pass null for the AI prediction data here.
                         const recommendationAtCalc = getRecommendation(trendStatsAtCalc, boardStatsAtCalc, neighbourScoresAtCalc, difference, false, null, adaptiveFactorInfluences, aiConfidenceThresholds);
 
                         if (DEBUG_MODE) {
@@ -1984,7 +1986,7 @@
                             const boardStatsAtCalc = getBoardStateStats(currentHistorySlice);
                             const neighbourScoresAtCalc = runNeighbourAnalysis(false, currentHistorySlice);
                             
-                            const recommendationAtCalc = getRecommendation(trendStatsAtCalc, boardStatsAtCalc, neighbourScoresAtCalc, diff, false, predictionDataForHistorical ? predictionDataForHistorical.groups : null, adaptiveFactorInfluences, aiConfidenceThresholds);
+                            const recommendationAtCalc = getRecommendation(trendStatsAtCalc, boardStatsAtCalc, neighbourScoresAtCalc, diff, false, predictionDataForHistorical, adaptiveFactorInfluences, aiConfidenceThresholds);
                             
                             item.recommendedGroupId = recommendationAtCalc.bestCandidate ? recommendationAtCalc.bestCandidate.type.id : null;
                             item.recommendationDetails = recommendationAtCalc.bestCandidate ? {
@@ -2735,7 +2737,7 @@
                             return analysis;
                         }
                         
-                        function getRecommendation(trendStats, boardStats, neighbourScores, currentDifference, isSimulated = false, mlProbabilities = null, adaptiveInfluences, aiConfidenceThresholds) {
+                        function getRecommendation(trendStats, boardStats, neighbourScores, currentDifference, isSimulated = false, aiPredictionData = null, adaptiveInfluences, aiConfidenceThresholds) {
                     if (DEBUG_MODE) {
                         console.log('Getting recommendation with currentDifference:', currentDifference, 'mlProbabilities:', mlProbabilities);
                     }
@@ -2880,8 +2882,8 @@
                         
                         // 7. AI Model Probability
                         let mlScore = 0;
-                        if (mlProbabilities && mlProbabilities[type.id] !== undefined && isAiReady) {
-                            mlScore = mlProbabilities[type.id] * 25; // Scale probability to a score (e.g., 0.8 prob becomes 20 score)
+                        if (aiPredictionData && aiPredictionData.groups && aiPredictionData.groups[type.id] !== undefined && isAiReady) {
+                            mlScore = aiPredictionData.groups[type.id] * 25; // Scale probability to a score (e.g., 0.8 prob becomes 20 score)
                             baseScore += mlScore;
                             if (mlScore > aiConfidenceThresholds.play) { // If AI probability is high enough
                                 mlBoostApplied = true;
@@ -3025,15 +3027,16 @@
                         }
 
 
-                        // Table Change Warning (Phase 4: Conceptual)
-                        let tableChangeWarningHtml = '';
-                        if (useTableChangeWarnings && mlProbabilities && mlProbabilities.failures) {
-                            if (mlProbabilities.failures.streakBreak > 0.5 || mlProbabilities.failures.sectionShift > 0.5) {
+                  // Table Change Warning (Phase 4: Conceptual)
+                        let tableChangeWarningHtml = ''; // This variable is not used in this specific block after the change, but kept for context.
+                        const failureProbs = aiPredictionData?.failures; // Get failures here
+                        if (useTableChangeWarnings && failureProbs) {
+                            if (failureProbs.streakBreak > 0.5 || failureProbs.sectionShift > 0.5) {
                                 // This warning is now detailed in displayCalculationResult based on AI's failure output.
                                 // We keep this check here for the 'Avoid Now' signal.
                             }
                         }
-                        if (bestCandidate.details.mlProbability !== null && bestCandidate.details.mlProbability < 0.3 && (mlProbabilities.failures.streakBreak > 0.5 || mlProbabilities.failures.sectionShift > 0.5)) {
+                        if (bestCandidate.details.mlProbability !== null && bestCandidate.details.mlProbability < 0.3 && (failureProbs?.streakBreak > 0.5 || failureProbs?.sectionShift > 0.5)) {
                             recommendationSignal = 'Avoid Now';
                             confidenceText = ` <span class="text-red-600">(High Risk)</span>`;
                         }
