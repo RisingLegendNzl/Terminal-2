@@ -2713,6 +2713,322 @@
                             return analysis;
                         }
                         
+                        function getRecommendation(trendStats, boardStats, neighbourScores, currentDifference, isSimulated = false, mlProbabilities = null, adaptiveInfluences, aiConfidenceThresholds) {
+                    if (DEBUG_MODE) {
+                        console.log('Getting recommendation with currentDifference:', currentDifference, 'mlProbabilities:', mlProbabilities);
+                    }
+                    let bestCandidate = null;
+                    let highestScore = -Infinity;
+                    let patternInfo = null;
+
+                    // Filter prediction types based on useAdvancedCalculations, similar to updateActivePredictionTypes
+                    let eligiblePredictionTypes = activePredictionTypes;
+
+                    // Calculate a score for each eligible prediction type
+                    eligiblePredictionTypes.forEach(type => {
+                        const predictionTypeDefinition = allPredictionTypes.find(t => t.id === type.id);
+                        if (!predictionTypeDefinition) {
+                            if (DEBUG_MODE) {
+                                console.warn(`Prediction type definition not found for ID: `+type.id);
+                            }
+                            return;
+                        }
+                        const baseNum = predictionTypeDefinition.calculateBase(parseInt(dom.number1.value, 10), parseInt(dom.number2.value, 10));
+
+                        if (isNaN(baseNum) || baseNum < 0 || baseNum > 36) {
+                            return; // Skip if base number is invalid
+                        }
+                        
+                        const terminals = terminalMapping?.[baseNum] || [];
+                        const hitZone = getHitZone(baseNum, terminals, (confirmedWinsLog.length > 0 ? confirmedWinsLog[confirmedWinsLog.length -1] : null));
+
+                        let baseScore = 1.0; // Starting score
+                        let confluenceBonus = 1.0; // Multiplier for strong confluence
+                        let primaryDrivingFactor = 'Statistical Trends'; // Default factor
+                        let mlBoostApplied = false;
+                        let patternBoostApplied = false;
+                        let proximityBoostApplied = false;
+                        let weightedZoneBoostApplied = false;
+                        let aiLowPocketBoostApplied = false;
+
+                        // 1. Trend Confirmation (Negative if not confirmed)
+                        const currentStreak = trendStats.currentStreaks?.[type.id] ?? 0;
+                        const lastSuccessState = trendStats.lastSuccessState;
+                        let trendConfirmed = false;
+                        if (useTrendConfirmation) {
+                            if (lastSuccessState.length > 0 && lastSuccessState.includes(type.id)) {
+                                trendConfirmed = true;
+                                baseScore += 2; // Boost for confirming trend
+                                primaryDrivingFactor = 'Consistent Trend';
+                            } else {
+                                // If not confirmed, apply penalty or just no boost
+                                // baseScore *= 0.5; // Example penalty
+                            }
+                        } else {
+                            trendConfirmed = true; // If toggle is off, always consider trend "confirmed"
+                        }
+
+                        // 2. Historical Hit Rate
+                        const averageHitRate = boardStats?.[type.id]?.averageHitRates ?? 0; // Use averageHitRates from boardStats
+                        const totalAttempts = boardStats?.[type.id]?.total ?? 0;
+                        if (totalAttempts > 0) {
+                            baseScore += (averageHitRate / 10); // Scale hit rate (e.g., 50% hit rate adds 5 to score)
+                            if (averageHitRate > STRATEGY_CONFIG.triggerSuccessThreshold && totalAttempts >= STRATEGY_CONFIG.triggerMinAttempts) {
+                                confluenceBonus += 0.2; // Small bonus for good historical performance
+                                primaryDrivingFactor = 'Good Historical Hit Rate';
+                            }
+                        }
+
+                        // 3. Due For A Hit (Contrarian)
+                        if (useDueForHit) {
+                            // Find the global average hit rate for this type across all relevant history
+                            const overallHistoryForType = history.filter(item => {
+                                const predDef = allPredictionTypes.find(t => t.id === type.id);
+                                if (!predDef) return false;
+                                const base = predDef.calculateBase(item.num1, item.num2);
+                                return base >=0 && base <= 36;
+                            });
+                            const totalSuccessfulForType = overallHistoryForType.filter(item => item.typeSuccessStatus?.[type.id]).length;
+                            const overallHitRate = overallHistoryForType.length > 0 ? (totalSuccessfulForType / overallHistoryForType.length) * 100 : 0;
+
+                            if (overallHitRate > 0 && averageHitRate < (overallHitRate * 0.7) && totalAttempts > 5) {
+                                baseScore += 3; // Boost if significantly underperforming its own historical average
+                                primaryDrivingFactor = 'Due For Hit (Contrarian)';
+                            }
+                        }
+                        
+                        // 4. Neighbour Score Weighting
+                        if (useWeightedZone) {
+                            let neighbourInfluence = 0;
+                            hitZone.forEach(num => {
+                                const score = neighbourScores?.[num]?.success || 0;
+                                neighbourInfluence += score;
+                            });
+                            // Normalize neighbour influence or apply directly
+                            // This uses a simple sum for now; a more complex normalization might be needed
+                            baseScore += neighbourInfluence * 0.1; // Boost based on hot neighbours
+                            if (neighbourInfluence > 0) {
+                                weightedZoneBoostApplied = true;
+                                primaryDrivingFactor = 'Hot Zone Weighting';
+                            }
+                        }
+
+                        // 5. Proximity Boost (to last winning number)
+                        let predictiveDistance = Infinity;
+                        if (useProximityBoost && confirmedWinsLog.length > 0) {
+                            const lastWinningNumber = confirmedWinsLog[confirmedWinsLog.length -1];
+                            if (lastWinningNumber !== null) {
+                                // Find shortest pocket distance from any number in the hit zone to the last winning number
+                                let minHitZonePocketDistance = Infinity;
+                                hitZone.forEach(numInZone => {
+                                    const dist = calculatePocketDistance(numInZone, lastWinningNumber);
+                                    if (dist < minHitZonePocketDistance) {
+                                        minHitZonePocketDistance = dist;
+                                    }
+                                });
+                                predictiveDistance = minHitZonePocketDistance; // Store for XAI
+
+                                if (minHitZonePocketDistance <= 3 && minHitZonePocketDistance !== Infinity) { // Very close proximity
+                                    baseScore += (3 - minHitZonePocketDistance) * 2; // Larger boost for closer numbers
+                                    proximityBoostApplied = true;
+                                    primaryDrivingFactor = 'Proximity to Last Spin';
+                                }
+                            }
+                        }
+
+                        // 6. Pattern Detection
+                        // Check for 'trigger-type' patterns
+                        const prevSuccessfulSpin = history.filter(item => item.status === 'success').pop();
+                        if (prevSuccessfulSpin && prevSuccessfulSpin.hitTypes.length === 1) {
+                            const triggerType = prevSuccessfulSpin.hitTypes[0];
+                            const typeTriggerKey = `trigger-type-`+triggerType;
+                            for (const resultType in patternMemory[typeTriggerKey]) {
+                                const pattern = patternMemory[typeTriggerKey][resultType];
+                                if (pattern.attempts >= STRATEGY_CONFIG.patternMinAttempts && (pattern.successes / pattern.attempts * 100) >= STRATEGY_CONFIG.patternSuccessThreshold) {
+                                    if (resultType === type.id) { // If this type matches the pattern's expected result
+                                        baseScore += 5; // Strong boost for confirmed pattern
+                                        confluenceBonus += 0.3; // Additional confluence
+                                        patternInfo = `Pattern detected: `+allPredictionTypes.find(t => t.id === triggerType)?.displayLabel+` often leads to `+type.displayLabel+`.`;
+                                        patternBoostApplied = true;
+                                        primaryDrivingFactor = 'Pattern Detection';
+                                    }
+                                }
+                            }
+                        }
+                        
+                        // 7. AI Model Probability
+                        let mlScore = 0;
+                        if (mlProbabilities && mlProbabilities[type.id] !== undefined && isAiReady) {
+                            mlScore = mlProbabilities[type.id] * 25; // Scale probability to a score (e.g., 0.8 prob becomes 20 score)
+                            baseScore += mlScore;
+                            if (mlScore > aiConfidenceThresholds.play) { // If AI probability is high enough
+                                mlBoostApplied = true;
+                                primaryDrivingFactor = 'High AI Confidence';
+                            }
+                        }
+
+                        // 8. Prioritize Lowest Pocket Distance (OVERRIDE)
+                        let aiLowestPocketDistanceScore = 0;
+                        if (useLowestPocketDistance && mlProbabilities && isAiReady) {
+                            const lastWinningNumber = confirmedWinsLog.length > 0 ? confirmedWinsLog[confirmedWinsLog.length -1] : null;
+                            if (lastWinningNumber !== null) {
+                                const aiRecommendedPocketDistance = mlProbabilities['recommendedGroupPocketDistance']; // Assuming worker provides this
+                                // This would require the AI to output a pocket distance or predict numbers directly
+                                // For now, we'll simulate this if it's not available from the ML model directly
+                                
+                                // To truly implement this, the AI model needs to predict the winning number or its direct distance.
+                                // If the AI directly predicted a number, you'd calculate its distance.
+                                // If the AI outputs 'recommendedGroupPocketDistance', use that.
+                                // For conceptual placeholder: if the current type's hit zone is very close to last winning number,
+                                // and AI confidence is high for this group, give a strong boost.
+                                if (mlProbabilities[type.id] > 0.6) { // If AI is confident in this group
+                                    let minHitZonePocketDistance = Infinity;
+                                    hitZone.forEach(numInZone => {
+                                        const dist = calculatePocketDistance(numInZone, lastWinningNumber);
+                                        if (dist < minHitZonePocketDistance) {
+                                            minHitZonePocketDistance = dist;
+                                        }
+                                    });
+                                    if (minHitZonePocketDistance <= 1 && minHitZonePocketDistance !== Infinity) { // If very close
+                                        aiLowestPocketDistanceScore = 20; // Significant boost
+                                        aiLowPocketBoostApplied = true;
+                                        primaryDrivingFactor = 'AI-Driven Proximity';
+                                    }
+                                }
+                            }
+                        }
+                        baseScore += aiLowestPocketDistanceScore;
+
+                        // Apply adaptive influence to the base score
+                        let adaptiveInfluenceUsed = adaptiveInfluences[primaryDrivingFactor] || 1.0;
+                        let finalScore = baseScore * confluenceBonus * adaptiveInfluenceUsed;
+
+                        // Apply Dynamic Strategy Weighting (Phase 4, conceptual for now)
+                        // If useDynamicStrategy is true, a winning AI model's prediction might get a further boost.
+                        if (useDynamicStrategy && mlProbabilities && isAiReady) {
+                            // This part of dynamic weighting based on individual model performance
+                            // is now handled by the worker in `getPredictionProbabilitiesFromWorker`
+                            // when it calculates `ensembleWeights`.
+                            // So, the `mlProbabilities` already reflect this dynamic weighting.
+                            // No additional weighting needed here based on the ensemble.
+                        }
+
+                        if (finalScore > highestScore) {
+                            highestScore = finalScore;
+                            bestCandidate = {
+                                type: type,
+                                baseNum: baseNum,
+                                terminals: terminals,
+                                hitZone: hitZone,
+                                score: finalScore,
+                                details: { // For Explainable AI
+                                    baseScore: baseScore,
+                                    confluenceBonus: confluenceBonus,
+                                    primaryDrivingFactor: primaryDrivingFactor,
+                                    adaptiveInfluenceUsed: adaptiveInfluenceUsed,
+                                    mlProbability: mlProbabilities ? mlProbabilities[type.id] : null,
+                                    mlBoostApplied: mlBoostApplied,
+                                    patternBoostApplied: patternBoostApplied,
+                                    patternBoostMultiplier: patternInfo ? (finalScore / (baseScore * adaptiveInfluenceUsed)) : 1, // Crude way to show multiplier
+                                    proximityBoostApplied: proximityBoostApplied,
+                                    weightedZoneBoostApplied: weightedZoneBoostApplied,
+                                    aiLowPocketBoostApplied: aiLowPocketBoostApplied,
+                                    hitRate: averageHitRate,
+                                    avgTrend: trendStats.averages?.[type.id] ?? 0,
+                                    predictiveDistance: predictiveDistance, // New
+                                    finalScore: finalScore,
+                                    // Add individual model probabilities for tracking
+                                    individualModelProbs: null // This will be populated from predictionData.individualModelProbs in displayCalculationResult
+                                }
+                            };
+                        }
+                    });
+
+                    let recommendationHtml = '';
+                    let recommendationSignal = 'Wait'; // Default signal
+
+                    if (bestCandidate) {
+                        const recType = bestCandidate.type;
+                        const recLabel = recType.displayLabel;
+                        const recColor = recType.textColor;
+                        const recBaseNum = bestCandidate.baseNum;
+                        const recTerminals = bestCandidate.terminals.length > 0 ? ` (`+bestCandidate.terminals.join(', ')+`)` : '';
+                        const recHitZone = bestCandidate.hitZone;
+
+                        let neighboursHtml = '';
+                        if (useNeighbourFocus) {
+                            const hotNeighboursInZone = Object.entries(neighbourScores)
+                                .map(([num, scores]) => ({ num: parseInt(num), score: scores.success }))
+                                .filter(({num, score}) => recHitZone.includes(num) && score > 0)
+                                .sort((a,b) => b.score - a.score)
+                                .map(n => n.num);
+                            
+                            if (hotNeighboursInZone.length > 0) {
+                                neighboursHtml = `<p class="text-sm text-gray-500 mt-2">Hot numbers in zone: <span class="font-semibold text-purple-700">`+hotNeighboursInZone.join(', ')+`</span></p>`;
+                            }
+                        }
+                        
+                        let confidenceText = '';
+                        if (useAdaptivePlay) {
+                            if (bestCandidate.score >= aiConfidenceThresholds.strongPlay) {
+                                recommendationSignal = 'Strong Play';
+                                confidenceText = ` <span class="text-green-700">(High Confidence)</span>`;
+                            } else if (bestCandidate.score >= aiConfidenceThresholds.play) {
+                                recommendationSignal = 'Play';
+                                confidenceText = ` <span class="text-green-600">(Medium Confidence)</span>`;
+                            } else {
+                                recommendationSignal = 'Wait';
+                                confidenceText = ` <span class="text-yellow-600">(Low Confidence)</span>`;
+                            }
+                        } else {
+                            if (bestCandidate.score >= (INITIAL_PLAY_THRESHOLD * 1.5)) { // Simplified if adaptive is off
+                                recommendationSignal = 'Strong Play';
+                                confidenceText = ` <span class="text-green-700">(High Confidence)</span>`;
+                            } else if (bestCandidate.score >= INITIAL_PLAY_THRESHOLD) {
+                                recommendationSignal = 'Play';
+                                confidenceText = ` <span class="text-green-600">(Medium Confidence)</span>`;
+                            } else {
+                                recommendationSignal = 'Wait';
+                                confidenceText = ` <span class="text-yellow-600">(Low Confidence)</span>`;
+                            }
+                        }
+                        
+                        // Apply Less Strict Mode logic
+                        if (useLessStrict && bestCandidate.details.hitRate > 60 && bestCandidate.details.mlProbability > 0.6) {
+                             recommendationSignal = 'Strong Play';
+                             confidenceText = ` <span class="text-purple-700">(Less Strict High Confidence)</span>`;
+                        } else if (useLessStrict && bestCandidate.details.avgTrend >= 3 && bestCandidate.details.mlProbability > 0.5) {
+                             recommendationSignal = 'Play';
+                             confidenceText = ` <span class="text-purple-700">(Less Strict Medium Confidence)</span>`;
+                        }
+
+
+                        // Table Change Warning (Phase 4: Conceptual)
+                        let tableChangeWarningHtml = '';
+                        if (useTableChangeWarnings && mlProbabilities && mlProbabilities.failures) {
+                            if (mlProbabilities.failures.streakBreak > 0.5 || mlProbabilities.failures.sectionShift > 0.5) {
+                                // This warning is now detailed in displayCalculationResult based on AI's failure output.
+                                // We keep this check here for the 'Avoid Now' signal.
+                            }
+                        }
+                        if (bestCandidate.details.mlProbability !== null && bestCandidate.details.mlProbability < 0.3 && (mlProbabilities.failures.streakBreak > 0.5 || mlProbabilities.failures.sectionShift > 0.5)) {
+                            recommendationSignal = 'Avoid Now';
+                            confidenceText = ` <span class="text-red-600">(High Risk)</span>`;
+                        }
+
+
+                        recommendationHtml = `
+                            <p class="text-2xl font-bold mb-2">Recommendation: <span style="color: `+recColor+`;">`+recLabel+`</span> (`+recBaseNum+`)</p>
+                            <p class="text-xl font-bold">Signal: <span class="`+(recommendationSignal === 'Strong Play' ? 'text-green-600' : recommendationSignal === 'Play' ? 'text-blue-600' : recommendationSignal === 'Wait' ? 'text-yellow-600' : 'text-red-600')+`">`+recommendationSignal+`</span>`+confidenceText+`</p>
+                            `+neighboursHtml+`
+                        `;
+                    } else {
+                        recommendationHtml = `<p class="text-xl font-bold text-gray-600">No clear recommendation yet.</p>`;
+                    }
+
+                    return { html: recommendationHtml, bestCandidate: bestCandidate, patternInfo: patternInfo };
+                }
+
                         function runAllAnalyses() {
                             runBoardStateAnalysis();
                             runNeighbourAnalysis();
