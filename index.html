@@ -561,7 +561,129 @@
         // TensorFlow.js specific configurations (constants for main thread's use)
         const TRAINING_MIN_HISTORY = 10;
         let aiWorker; // Global declaration for aiWorker
+const dom = {
+    number1: document.getElementById('number1'),
+    number2: document.getElementById('number2'),
+    resultDisplay: document.getElementById('resultDisplay'),
+    historyList: document.getElementById('historyList'),
+    analysisList: document.getElementById('analysisList'),
+    boardStateAnalysis: document.getElementById('boardStateAnalysis'),
+    boardStateConclusion: document.getElementById('boardStateConclusion'),
+    historicalNumbersInput: document.getElementById('historicalNumbersInput'),
+    imageUpload: document.getElementById('imageUpload'),
+    imageUploadLabel: document.getElementById('imageUploadLabel'),
+    analyzeHistoricalDataButton: document.getElementById('analyzeHistoricalDataButton'),
+    historicalAnalysisMessage: document.getElementById('historicalAnalysisMessage'),
+    aiModelStatus: document.getElementById('aiModelStatus'),
+    recalculateAnalysisButton: document.getElementById('recalculateAnalysisButton'),
+    trendConfirmationToggle: document.getElementById('trendConfirmationToggle'),
+    weightedZoneToggle: document.getElementById('weightedZoneToggle'),
+    proximityBoostToggle: document.getElementById('proximityBoostToggle'),
+    pocketDistanceToggle: document.getElementById('pocketDistanceToggle'),
+    lowestPocketDistanceToggle: document.getElementById('lowestPocketDistanceToggle'),
+    advancedCalculationsToggle: document.getElementById('advancedCalculationsToggle'),
+    dynamicStrategyToggle: document.getElementById('dynamicStrategyToggle'),
+    adaptivePlayToggle: document.getElementById('adaptivePlayToggle'),
+    tableChangeWarningsToggle: document.getElementById('tableChangeWarningsToggle'),
+    dueForHitToggle: document.getElementById('dueForHitToggle'),
+    neighbourFocusToggle: document.getElementById('neighbourFocusToggle'),
+    lessStrictModeToggle: document.getElementById('lessStrictModeToggle'),
+    dynamicTerminalNeighbourCountToggle: document.getElementById('dynamicTerminalNeighbourCountToggle'),
+    videoUpload: document.getElementById('videoUpload'),
+    videoUploadLabel: document.getElementById('videoUploadLabel'),
+    videoStatus: document.getElementById('videoStatus'),
+    videoPlayer: document.getElementById('videoPlayer'),
+    frameCanvas: document.getElementById('frameCanvas'),
+    setHighestWinRatePreset: document.getElementById('setHighestWinRatePreset'),
+    setBalancedSafePreset: document.getElementById('setBalancedSafePreset'),
+    setAggressiveSignalsPreset: document.getElementById('setAggressiveSignalsPreset'),
+    rouletteWheelContainer: document.getElementById('rouletteWheelContainer'),
+    rouletteLegend: document.getElementById('rouletteLegend'),
+    strategyWeightsDisplay: document.getElementById('strategyWeightsDisplay'),
+    videoUploadContainer: document.getElementById('videoUploadContainer'),
+    videoControlsContainer: document.getElementById('videoControlsContainer'),
+    analyzeVideoButton: document.getElementById('analyzeVideoButton'),
+    clearVideoButton: document.getElementById('clearVideoButton'),
+    historyInfoToggle: document.getElementById('historyInfoToggle'),
+    historyInfoDropdown: document.getElementById('historyInfoDropdown'),
+    winCount: document.getElementById('winCount'), 
+    lossCount: document.getElementById('lossCount') 
+};
 
+function toggleGuide(contentId) {
+    const content = document.getElementById(contentId);
+    if (content) {
+        content.classList.toggle('open');
+    }
+}
+
+function getNeighbours(number, count) {
+    const index = rouletteWheel.indexOf(number);
+    if (index === -1) return [];
+    const neighbours = new Set();
+    const wheelSize = rouletteWheel.length;
+    for (let i = 1; i <= count; i++) {
+        neighbours.add(rouletteWheel[(index - i + wheelSize) % wheelSize]);
+        neighbours.add(rouletteWheel[(index + i) % wheelSize]);
+    }
+    return Array.from(neighbours);
+}
+
+function getHitZone(baseNumber, terminals, winningNumber = null) {
+    if (baseNumber < 0 || baseNumber > 36) return [];
+    const hitZone = new Set([baseNumber]);
+    const numTerminals = terminals ? terminals.length : 0;
+
+    let baseNeighbourCount = (numTerminals === 1) ? 3 : (numTerminals >= 2) ? 1 : 0;
+    if (baseNeighbourCount > 0) getNeighbours(baseNumber, baseNeighbourCount).forEach(n => hitZone.add(n));
+
+    let terminalNeighbourCount;
+    if (useDynamicTerminalNeighbourCount && winningNumber !== null) {
+        if (baseNumber === winningNumber || (terminals && terminals.includes(winningNumber))) {
+            terminalNeighbourCount = 0;
+        } else {
+            terminalNeighbourCount = (numTerminals === 1 || numTerminals === 2) ? 3 : (numTerminals > 2) ? 1 : 0;
+        }
+    } else {
+        terminalNeighbourCount = (numTerminals === 1 || numTerminals === 2) ? 3 : (numTerminals > 2) ? 1 : 0;
+    }
+
+    if (terminals && terminals.length > 0) {
+        terminals.forEach(t => {
+            hitZone.add(t);
+            if (terminalNeighbourCount > 0) getNeighbours(t, terminalNeighbourCount).forEach(n => hitZone.add(n));
+        });
+    }
+    return Array.from(hitZone);
+}
+
+function getRouletteNumberColor(number) {
+    if (number === 0) return 'green';
+    const redNumbers = [1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36];
+    if (redNumbers.includes(number)) return 'red';
+    return 'black';
+}
+
+function drawRouletteWheel(currentDiff = null, lastWinningNumber = null) {
+    dom.rouletteWheelContainer.innerHTML = '';
+    const svgWidth = dom.rouletteWheelContainer.clientWidth || 300;
+    const svgHeight = svgWidth;
+    const radius = (svgWidth / 2) * 0.8;
+    const centerX = svgWidth / 2;
+    const centerY = svgHeight / 2;
+    const numberRadius = 15;
+
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("id", "rouletteWheel");
+    svg.setAttribute("width", svgWidth);
+    svg.setAttribute("height", svgHeight);
+    svg.setAttribute("viewBox", `0 0 ${svgWidth} ${svgHeight}`);
+
+    const outerCircle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+    outerCircle.setAttribute("cx", centerX);
+    outerCircle.setAttribute("cy", centerY);
+    outerCircle.setAttribute("r", radius + numberRadius + 5);
+    outer
         // --- All core helper functions (moved to global scope for accessibility) ---
         function toggleGuide(contentId) {
             const content = document.getElementById(contentId);
