@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1812,8 +1813,25 @@
                             confirmedStreak: 0, pocketDistance: null, winningNumber: null,
                             activeStrategies: { weightedZone: useWeightedZone, proximityBoost: useProximityBoost },
                             recommendedGroupId: recommendationAtCalc.bestCandidate ? recommendationAtCalc.bestCandidate.type.id : null,
-                            recommendedGroupPocketDistance: null,
-                            recommendationDetails: recommendationAtCalc.bestCandidate ? recommendationAtCalc.bestCandidate.details : null
+                          recommendedGroupPocketDistance: null,
+                            recommendationDetails: recommendationAtCalc.bestCandidate ? recommendationAtCalc.bestCandidate.details : { // Ensure it's always an object
+                                baseScore: 0,
+                                confluenceBonus: 1.0,
+                                primaryDrivingFactor: 'None',
+                                adaptiveInfluenceUsed: 1.0,
+                                mlProbability: null,
+                                mlBoostApplied: false,
+                                patternBoostApplied: false,
+                                patternBoostMultiplier: 1,
+                                proximityBoostApplied: false,
+                                weightedZoneBoostApplied: false,
+                                aiLowPocketBoostApplied: false,
+                                hitRate: 0,
+                                avgTrend: 0,
+                                predictiveDistance: Infinity,
+                                finalScore: 0,
+                                individualModelProbs: null // Make sure this property exists
+                            }
                         };
 
                         if (DEBUG_MODE) {
